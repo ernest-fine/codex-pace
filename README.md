@@ -6,10 +6,13 @@ Codex Pace is a desktop companion for tracking your Codex weekly quota. It compa
 
 Sign in to Codex on the computer where you’ll run the tracker.
 
-| Platform | How to run |
-| --- | --- |
-| macOS 14 or later | Open **Codex Pace.app**. Session status appears in the menu bar. |
-| Windows 11 | Extract the package for your PC, then open `CodexPace.exe`. Choose **x64** for Intel or AMD, or **ARM64** for Windows on Arm. The package includes the .NET Desktop runtime. |
+| Platform | Download | How to run |
+| --- | --- | --- |
+| macOS 14 or later on Apple silicon | [macOS ARM64](https://github.com/ernest-fine/codex-pace/releases/download/v1.22.0/Codex-Pace-macOS-arm64.zip) | Extract the ZIP and open **Codex Pace.app**. Session status appears in the menu bar. |
+| Windows 11 on Intel or AMD | [Windows x64](https://github.com/ernest-fine/codex-pace/releases/download/v1.22.0/Codex-Pace-Windows-x64.zip) | Extract the ZIP and run `CodexPace.exe`. |
+| Windows 11 on Arm | [Windows ARM64](https://github.com/ernest-fine/codex-pace/releases/download/v1.22.0/Codex-Pace-Windows-arm64.zip) | Extract the ZIP and run `CodexPace.exe`. |
+
+The Windows packages include the .NET Desktop runtime. The macOS package uses an ad hoc signature. A trusted copy may require individual approval in Privacy & Security. [Apple’s first-launch guidance](https://support.apple.com/en-us/102445)
 
 Keep Codex Pace running for background updates and notifications. Quota refreshes every two minutes. Use **Refresh** to check manually. See the [Windows guide](windows/README.md) for tray controls and setup details.
 
