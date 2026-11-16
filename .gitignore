@@ -1,0 +1,5 @@
+.DS_Store
+/dist/
+/Codex Pace.app/
+/windows/bin/
+/windows/obj/
