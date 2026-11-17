@@ -188,13 +188,13 @@ internal sealed class PaceApplication
     {
         var reset = WorkClock.At(new DateOnly(2026, 11, 23), 1275);
         var offsets = new[] { -4.5, -3.5, -2.5, -1, 0 };
-        var amounts = new double[] { 49, 53, 57, 57, 60 };
+        var amounts = new double[] { 35, 36, 38, 38, 39.5 };
         var history = offsets.Zip(amounts, (hours, used) =>
             new QuotaSample(DemoTime.AddHours(hours), reset, 10_080, used)).ToArray();
         ModelOption[] models =
         [
-            new("gpt-6.1-sol", "GPT-6.1 Sol", ["low", "medium", "high", "xhigh", "max", "ultra"], "medium", true),
-            new("gpt-6-luna", "GPT-6 Luna", ["low", "medium", "high", "max"], "high", false)
+            new("gpt-6.1-sol", "GPT-6.1 Sol", new[] { "low", "medium", "high", "xhigh", "max", "ultra" }, "medium", true),
+            new("gpt-6-luna", "GPT-6 Luna", new[] { "low", "medium", "high", "max" }, "high", false)
         ];
         return new Telemetry(history[^1], null, history,
             new Activity(DemoTime, "gpt-6.1-sol", "high", 4, 180_000), models, "Example data", null);
