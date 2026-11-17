@@ -233,7 +233,9 @@ struct CodexPaceApp: App {
     @AppStorage("heroFocus") private var heroFocus: HeroFocus = .session
 
     var body: some Scene {
-        let menuBarTitle = DashboardFormat.menuBarTitle(for: store.data, now: Date(), display: targetDisplay)
+        let menuBarTitle = DashboardFormat.menuBarTitle(
+            for: store.data, now: Date(), focus: heroFocus, display: targetDisplay
+        )
         Window("Codex Pace", id: "dashboard") {
             Dashboard(
                 data: store.data, schedule: $store.schedule,

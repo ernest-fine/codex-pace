@@ -62,39 +62,27 @@ struct Dashboard: View {
         let now = data.isDemo ? data.quota?.observedAt ?? Date.now : Date.now
         GeometryReader { geometry in
             let width = min(1024, max(0, geometry.size.width - 44))
-            let usesInspector = width >= 850
-            let inspectorWidth = min(440, floor(width * 0.43))
-            let dashboardWidth = usesInspector && activeEditor != nil ? width - inspectorWidth - 14 : width
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     header
-                    HStack(alignment: .top, spacing: 14) {
-                        dashboardCards(width: dashboardWidth, now: now)
-                            .frame(width: dashboardWidth)
-                        if usesInspector, let activeEditor {
-                            Panel(padding: 18) {
-                                editorContent(activeEditor)
-                            }
-                            .frame(width: inspectorWidth)
-                        }
-                    }
+                    dashboardCards(width: width, now: now)
                 }
                 .frame(width: width, alignment: .leading)
                 .padding(.vertical, 22)
                 .frame(maxWidth: .infinity)
-            }
-            .sheet(item: sheetEditor(usesInspector: usesInspector)) { editor in
-                editorContent(editor)
-                    .padding(24)
-                    .frame(width: editor == .sessions ? 500 : 390)
-                    .background(Graphite.panel)
-                    .foregroundStyle(Graphite.ink)
             }
         }
         .background(Graphite.surface)
         .foregroundStyle(Graphite.ink)
         .tint(Graphite.ink)
         .frame(minWidth: 580, minHeight: 480)
+        .sheet(item: $activeEditor) { editor in
+            editorContent(editor)
+                .padding(24)
+                .frame(width: editor == .sessions ? 500 : 390)
+                .background(Graphite.panel)
+                .foregroundStyle(Graphite.ink)
+        }
     }
 
     private func dashboardCards(width: CGFloat, now: Date) -> some View {
@@ -119,13 +107,6 @@ struct Dashboard: View {
         }
     }
 
-    private func sheetEditor(usesInspector: Bool) -> Binding<Editor?> {
-        Binding(
-            get: { usesInspector ? nil : activeEditor },
-            set: { if !usesInspector { activeEditor = $0 } }
-        )
-    }
-
     @ViewBuilder
     private func editorContent(_ editor: Editor) -> some View {
         switch editor {
@@ -142,11 +123,7 @@ struct Dashboard: View {
         }
     }
 
-    private func toggleEditor(_ editor: Editor) {
-        if activeEditor == editor {
-            activeEditor = nil
-            return
-        }
+    private func openEditor(_ editor: Editor) {
         switch editor {
         case .sessions:
             sessionsDraft.begin(schedule, workdays: workdays)
@@ -245,14 +222,12 @@ struct Dashboard: View {
 
     private var actions: some View {
         HStack(spacing: 8) {
-            Button("Edit sessions") { toggleEditor(.sessions) }
+            Button("Edit sessions") { openEditor(.sessions) }
                 .graphiteButton(.secondary)
-                .accessibilityAddTraits(activeEditor == .sessions ? .isSelected : [])
                 .help("Set work sessions for each day of the week")
 
-            Button("Work days") { toggleEditor(.workdays) }
+            Button("Work days") { openEditor(.workdays) }
                 .graphiteButton(.quiet)
-                .accessibilityAddTraits(activeEditor == .workdays ? .isSelected : [])
                 .help("Choose your recurring work days")
 
             Button(action: refresh) {
@@ -594,7 +569,7 @@ private struct WeeklyQuotaContent: View {
 
     private var readings: some View {
         let used = quota.usedPercent / 100
-        let plannedTarget = pace.flatMap { $0.sessions.isEmpty ? nil : $0.targetPercent }
+        let plannedTarget = DashboardFormat.weeklyTarget(for: pace)
         let target = plannedTarget.map { $0 / 100 }
         let actual = targetDisplay.percent(forUsed: quota.usedPercent)
         let actualText = DashboardFormat.percent(actual)
@@ -1189,7 +1164,22 @@ enum DashboardFormat {
         pace.sessionUsedFraction.map { percent(max(0, display.percent(forUsed: 100 * $0))) }
     }
 
-    static func menuBarTitle(for data: DashboardData, now: Date, display: WeeklyTargetDisplay) -> String {
+    static func weeklyTarget(for pace: Pace?) -> Double? {
+        pace.flatMap { $0.sessions.isEmpty ? nil : $0.targetPercent }
+    }
+
+    static func menuBarTitle(
+        for data: DashboardData, now: Date, focus: HeroFocus, display: WeeklyTargetDisplay
+    ) -> String {
+        if focus == .weekly {
+            guard let quota = data.quota else { return "Codex · Weekly quota" }
+            let actual = percent(display.percent(forUsed: quota.usedPercent))
+            let numbers = weeklyTarget(for: data.pace).map { target in
+                "\(actual) / \(percent(display.percent(forUsed: target)))"
+            } ?? actual
+            return "Week · \(numbers) \(display.rawValue)"
+        }
+
         guard let pace = data.pace else { return "Codex Pace" }
         let sessionNow = data.isDemo ? data.quota?.observedAt ?? now : now
         guard let session = pace.currentSession, session.start <= sessionNow, sessionNow < session.end else {

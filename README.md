@@ -8,7 +8,7 @@ Sign in to Codex on the computer where you’ll run the tracker.
 
 | Platform | Download | How to run |
 | --- | --- | --- |
-| macOS 14 or later on Apple silicon | [macOS 1.23.0](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.0/Codex-Pace-macOS-arm64.zip) | Extract the ZIP and open **Codex Pace.app**. Session status appears in the menu bar. |
+| macOS 14 or later on Apple silicon | [macOS 1.23.1](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.1/Codex-Pace-macOS-arm64.zip) | Extract the ZIP and open **Codex Pace.app**. The menu bar follows the quota view you select. |
 | Windows 11 on Intel or AMD | [Windows x64 1.23.0](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.0/Codex-Pace-Windows-x64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
 | Windows 11 on Arm | [Windows Arm 1.23.0](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.0/Codex-Pace-Windows-arm64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
 
