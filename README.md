@@ -1,6 +1,6 @@
 # Codex Pace
 
-Codex Pace is a desktop companion for tracking your Codex weekly quota. It compares actual usage with the pace you planned, shows the allowance left for the work ahead, and suggests a model and effort when you’re at risk of reaching a budget.
+Codex Pace shows how much of your weekly Codex quota you’ve used and how much is available for each work session. It compares your usage with your plan and suggests a model and effort level when you’re likely to reach your planned limit.
 
 ## Run Codex Pace
 
@@ -8,22 +8,23 @@ Sign in to Codex on the computer where you’ll run the tracker.
 
 | Platform | Download | How to run |
 | --- | --- | --- |
-| macOS 14 or later on Apple silicon | [macOS ARM64](https://github.com/ernest-fine/codex-pace/releases/download/v1.22.0/Codex-Pace-macOS-arm64.zip) | Extract the ZIP and open **Codex Pace.app**. Session status appears in the menu bar. |
-| Windows 11 on Intel or AMD | [Windows x64](https://github.com/ernest-fine/codex-pace/releases/download/v1.22.0/Codex-Pace-Windows-x64.zip) | Extract the ZIP and run `CodexPace.exe`. |
-| Windows 11 on Arm | [Windows ARM64](https://github.com/ernest-fine/codex-pace/releases/download/v1.22.0/Codex-Pace-Windows-arm64.zip) | Extract the ZIP and run `CodexPace.exe`. |
+| macOS 14 or later on Apple silicon | [macOS 1.23.0](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.0/Codex-Pace-macOS-arm64.zip) | Extract the ZIP and open **Codex Pace.app**. Session status appears in the menu bar. |
+| Windows 11 on Intel or AMD | [Windows x64 1.23.0](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.0/Codex-Pace-Windows-x64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
+| Windows 11 on Arm | [Windows Arm 1.23.0](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.0/Codex-Pace-Windows-arm64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
 
-The Windows packages include the .NET Desktop runtime. The macOS package uses an ad hoc signature. A trusted copy may require individual approval in Privacy & Security. [Apple’s first-launch guidance](https://support.apple.com/en-us/102445)
+The Windows ZIP includes the files the app needs. Keep them with `CodexPace.exe`. macOS may ask you to approve the app in Privacy & Security the first time you open it. [Apple’s first-launch guidance](https://support.apple.com/en-us/102445)
 
 Keep Codex Pace running for background updates and notifications. Quota refreshes every two minutes. Use **Refresh** to check manually. See the [Windows guide](windows/README.md) for tray controls and setup details.
 
 ## Plan your quota
 
-- **Session and weekly pace** show actual usage against the target by now. The header’s **Used / Left** switch changes both views and the Work sessions table.
-- **Work days and named sessions** let you set recurring hours that match your schedule. Work sessions shows a row per workday and a column per session, with a cumulative quota target at each session’s end. Unused quota carries forward.
-- **Forecasts and alerts** use your recent pace and scheduled time left to estimate when you might reach a session target or the weekly limit. Recent Codex activity helps the app suggest a model and effort for the next turn.
-- **Manual reset targets** let you plan for an earlier deadline. Redeem the reset in Codex at the time you choose.
+- Use **Used** or **Left** to choose how the app shows quota and targets.
+- Choose **Session** or **Weekly** in the quota card. On macOS, the Session view uses the share of weekly quota planned for that session. Using more than planned leaves less for the next session. Unused quota carries forward.
+- On macOS, open **Edit sessions** and choose **Edited days** to set each day’s hours or **Entire week** to use the same hours every day. Use **Work days** to choose which days count toward your plan. The **Work sessions** table shows the quota target at the end of each session.
+- If you’re likely to reach a limit, look for a model and effort suggestion under **Next turn**. Pace can also notify you once per target when your recent usage puts it within 30 minutes.
+- Use **Set reset target** to plan for an earlier deadline. Redeem the reset in Codex at the time you choose.
 
-Schedules and reset times use your computer’s local time zone. Graphite follows the system’s light or dark appearance.
+Schedules and reset times use your computer’s local time zone. The app follows your computer’s light or dark appearance.
 
 ## How quota readings work
 
@@ -39,10 +40,18 @@ If Codex Pace needs help finding the CLI, set `CODEX_PACE_CODEX` to the full pat
 ./build.sh
 ```
 
-**Windows** uses WinForms and the .NET 10 SDK. From the project root, publish the x64 executable with its runtime bundled.
+Run the macOS schedule checks from the project root:
 
 ```sh
-dotnet publish windows/CodexPace.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist/windows-x64
+test_dir=$(mktemp -d)
+swiftc BudgetWarning.swift Controls.swift Pacing.swift ScheduleEditor.swift Telemetry.swift tests/WorkScheduleTests.swift -o "$test_dir/work-schedule-tests"
+"$test_dir/work-schedule-tests"
 ```
 
-For Windows on Arm, use `win-arm64` and output to `dist/windows-arm64`.
+**Windows** uses WinUI 3 and the .NET 10 SDK. On Windows, run this from the project root to create the x64 app folder.
+
+```sh
+dotnet publish windows/CodexPace.csproj -c Release -r win-x64 --self-contained true -p:Platform=x64 -o dist/windows-x64
+```
+
+For Windows on Arm, use `-r win-arm64 -p:Platform=ARM64 -o dist/windows-arm64`.

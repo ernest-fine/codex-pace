@@ -1,36 +1,16 @@
 using System.Text.Json;
+using Microsoft.UI.Dispatching;
+using Microsoft.UI.Windowing;
+using WinRT.Interop;
 
 namespace CodexPace;
 
-internal static class Program
+internal sealed class PaceApplication
 {
-    [STAThread]
-    private static void Main(string[] args)
-    {
-        ApplicationConfiguration.Initialize();
-        Graphite.FollowSystemAppearance();
-        using var instance = new Mutex(true, @"Local\CodexPace", out var firstInstance);
-        if (!firstInstance)
-        {
-            MessageBox.Show("Codex Pace is already running. Open it from the Windows notification area.",
-                "Codex Pace", MessageBoxButtons.OK, MessageBoxIcon.Information);
-            return;
-        }
-
-        using var app = new PaceApplication(args.Contains("--demo", StringComparer.Ordinal));
-        Application.Run(app);
-    }
-}
-
-internal sealed class PaceApplication : ApplicationContext
-{
-    private readonly MainForm window;
-    private readonly NotifyIcon tray;
-    private readonly Icon? appIcon;
-    private readonly ToolStripMenuItem caption = new("Codex Pace") { Enabled = false };
-    private readonly ToolStripMenuItem refreshItem = new("Refresh usage");
-    private readonly ContextMenuStrip menu = new();
-    private readonly System.Windows.Forms.Timer timer = new() { Interval = 120_000 };
+    private readonly MainWindow window;
+    private readonly TrayIcon tray;
+    private readonly DispatcherQueueTimer timer;
+    private readonly Action exit;
     private readonly CancellationTokenSource shutdown = new();
     private readonly TelemetryReader reader = new();
     private readonly LocalStateStore store = new();
@@ -45,64 +25,46 @@ internal sealed class PaceApplication : ApplicationContext
     private static readonly DateTimeOffset DemoTime = WorkClock.At(new DateOnly(2026, 11, 18), 900);
     private DateTimeOffset Now => demo ? DemoTime : DateTimeOffset.UtcNow;
 
-    public PaceApplication(bool demo)
+    public PaceApplication(bool demo, Action exit)
     {
         this.demo = demo;
+        this.exit = exit;
         state = demo ? new LocalState() : store.Load();
-        window = new MainForm(state.Preferences);
-        appIcon = Environment.ProcessPath is { } executable ? Icon.ExtractAssociatedIcon(executable) : null;
-        window.Icon = appIcon ?? SystemIcons.Application;
-        tray = new NotifyIcon
-        {
-            Icon = window.Icon,
-            Text = "Codex Pace",
-            ContextMenuStrip = menu,
-            Visible = true
-        };
-
-        menu.Items.AddRange(
-        [
-            caption,
-            new ToolStripSeparator(),
-            new ToolStripMenuItem("Open dashboard", null, (_, _) => OpenDashboard()),
-            refreshItem,
-            new ToolStripMenuItem("Send test notification", null, (_, _) => TestNotification()),
-            new ToolStripSeparator(),
-            new ToolStripMenuItem("Quit", null, (_, _) => ExitThread()),
-        ]);
-        tray.DoubleClick += (_, _) => OpenDashboard();
-        tray.BalloonTipClicked += (_, _) => OpenDashboard();
-        refreshItem.Click += (_, _) => _ = RefreshAsync(force: true);
+        window = new MainWindow(state.Preferences);
+        var dispatcher = window.DispatcherQueue;
+        tray = new TrayIcon(WindowNative.GetWindowHandle(window), dispatcher);
+        tray.OpenRequested += OpenDashboard;
+        tray.RefreshRequested += () => _ = RefreshAsync(force: true);
+        tray.TestNotificationRequested += TestNotification;
+        tray.QuitRequested += () => Quit();
         window.RefreshRequested += () => _ = RefreshAsync(force: true);
         window.PreferencesChanged += ChangePreferences;
         window.TestNotificationRequested += TestNotification;
-        window.FormClosing += (_, e) =>
+        window.AppWindow.Closing += (_, args) =>
         {
-            if (!closing && e.CloseReason == CloseReason.UserClosing)
+            if (!closing && tray.IsRegistered)
             {
-                e.Cancel = true;
-                window.Hide();
+                args.Cancel = true;
+                window.AppWindow.Hide();
             }
         };
-        window.FormClosed += (_, _) =>
-        {
-            if (!closing) ExitThread();
-        };
+        window.Closed += (_, _) => Quit(windowAlreadyClosed: true);
+        timer = dispatcher.CreateTimer();
+        timer.Interval = TimeSpan.FromMinutes(2);
+        timer.IsRepeating = true;
         timer.Tick += (_, _) => _ = RefreshAsync(force: false);
-        window.Shown += (_, _) =>
-        {
-            timer.Start();
-            _ = RefreshAsync(force: false);
-        };
         Render();
-        window.Show();
+        window.Activate();
+        timer.Start();
+        _ = RefreshAsync(force: false);
     }
 
-    private void OpenDashboard()
+    public void OpenDashboard()
     {
         if (closing) return;
-        window.Show();
-        if (window.WindowState == FormWindowState.Minimized) window.WindowState = FormWindowState.Normal;
+        if (!window.AppWindow.IsVisible) window.AppWindow.Show();
+        if (window.AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized } presenter)
+            presenter.Restore();
         window.Activate();
     }
 
@@ -140,7 +102,7 @@ internal sealed class PaceApplication : ApplicationContext
 
     private void Accept(Telemetry current, DateTimeOffset now)
     {
-        latestObserved = current.Quota;
+        latestObserved = current.Source == "Codex account" ? current.Quota : null;
         if (current.Quota is { } observed && state.Preferences.ResetTarget is { } target
             && observed.ResetsAt != target.WindowResetsAt)
         {
@@ -185,19 +147,18 @@ internal sealed class PaceApplication : ApplicationContext
         if (storageError != null)
             data = data with { Error = string.Join(" ", new[] { data.Error, storageError }.Where(message => message != null)) };
         window.Render(data, state.Preferences, now, refreshing);
-        caption.Text = Planner.TrayCaption(data, now, state.Preferences.ShowUsed);
-        tray.Text = caption.Text;
-        refreshItem.Enabled = !refreshing;
+        tray.SetStatus(Planner.TrayCaption(data, now, state.Preferences.ShowUsed), refreshing);
     }
 
     private void ConsiderWarning(DateTimeOffset now)
     {
-        if (demo || latestObserved is not { } observed || observed.ResetsAt <= now
-            || (now - observed.ObservedAt).TotalMinutes is < 0 or > 5) return;
-        var warning = CurrentData(now).Warning;
-        if (warning is null || warning.ExpiresAt <= now || state.SentWarnings.ContainsKey(warning.Key)) return;
+        if (demo || latestObserved is null) return;
+        var warning = Planner.ImmediateWarnings(latestObserved, CurrentData(now).Pace, now)
+            .FirstOrDefault(candidate => candidate.ExpiresAt > now
+                && !state.SentWarnings.ContainsKey(candidate.Key));
+        if (warning is null) return;
 
-        ShowWarning(warning, test: false);
+        if (!ShowWarning(warning, test: false)) return;
         var active = state.SentWarnings.Where(entry => entry.Value > now)
             .ToDictionary(entry => entry.Key, entry => entry.Value);
         active[warning.Key] = now.AddDays(8);
@@ -208,13 +169,14 @@ internal sealed class PaceApplication : ApplicationContext
     {
         var example = Example();
         var result = Planner.Calculate(example, example.History, new Preferences(), DemoTime);
-        if (result.Warning is { } warning) ShowWarning(warning, test: true);
+        var warning = Planner.ImmediateWarnings(example.Quota, result.Pace, DemoTime).FirstOrDefault();
+        if (warning is not null) ShowWarning(warning, test: true);
     }
 
-    private void ShowWarning(BudgetWarning warning, bool test)
+    private bool ShowWarning(BudgetWarning warning, bool test)
     {
         var title = test ? "Test · " + warning.Title : warning.Title;
-        tray.ShowBalloonTip(8000, title, warning.Recommendation + "\n" + warning.Detail, ToolTipIcon.Warning);
+        return tray.ShowWarning(title, warning.Recommendation + "\n" + warning.Detail);
     }
 
     private void Persist()
@@ -238,29 +200,15 @@ internal sealed class PaceApplication : ApplicationContext
             new Activity(DemoTime, "gpt-6.1-sol", "high", 4, 180_000), models, "Example data", null);
     }
 
-    protected override void ExitThreadCore()
+    private void Quit(bool windowAlreadyClosed = false)
     {
         if (closing) return;
         closing = true;
         timer.Stop();
         shutdown.Cancel();
-        tray.Visible = false;
-        if (!window.IsDisposed) window.Close();
-        base.ExitThreadCore();
-    }
-
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing)
-        {
-            timer.Dispose();
-            tray.Dispose();
-            menu.Dispose();
-            window.Dispose();
-            appIcon?.Dispose();
-            shutdown.Dispose();
-        }
-        base.Dispose(disposing);
+        tray.Dispose();
+        if (!windowAlreadyClosed) window.Close();
+        exit();
     }
 }
 

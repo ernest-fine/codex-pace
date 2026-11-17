@@ -1,29 +1,5 @@
 import SwiftUI
 
-private enum Graphite {
-    static let surface = adaptive(0xeeefed, 0x151716)
-    static let panel = adaptive(0xfafbf9, 0x1d201e)
-    static let ink = adaptive(0x252826, 0xf3f4f1)
-    static let muted = adaptive(0x5d645f, 0xbac2bd)
-    static let line = adaptive(0xdce1dc, 0x3b443e)
-    static let selection = adaptive(0xe6ebe6, 0x353e37)
-    static let hero = adaptive(0xfdfefc, 0x222723)
-    static let inset = adaptive(0xedf0eb, 0x2e3630)
-    static let track = adaptive(0xdde3dd, 0x3e4841)
-    static let onPace = adaptive(0x287653, 0x8ac99e)
-    static let caution = adaptive(0x946217, 0xe2ba73)
-    static let risk = adaptive(0xa93846, 0xefa5a9)
-
-    private static func adaptive(_ light: UInt32, _ dark: UInt32) -> Color {
-        Color(nsColor: NSColor(name: nil) { appearance in
-            let rgb = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
-            return NSColor(srgbRed: CGFloat((rgb >> 16) & 255) / 255,
-                           green: CGFloat((rgb >> 8) & 255) / 255,
-                           blue: CGFloat(rgb & 255) / 255, alpha: 1)
-        })
-    }
-}
-
 enum RecommendationTone {
     case neutral, healthy, caution, critical
 
@@ -58,7 +34,17 @@ struct DashboardData {
     }
 }
 
+enum HeroFocus: String {
+    case session, weekly
+}
+
 struct Dashboard: View {
+    private enum Editor: String, Identifiable {
+        case sessions, workdays
+
+        var id: String { rawValue }
+    }
+
     let data: DashboardData
     @Binding var schedule: WorkSchedule
     let workdays: Set<Workday>
@@ -67,46 +53,154 @@ struct Dashboard: View {
     let changeResetTarget: (Date?, Date) -> Bool
     let refresh: () -> Void
     @Binding var targetDisplay: WeeklyTargetDisplay
+    @Binding var heroFocus: HeroFocus
     @StateObject private var sessionsDraft = ScheduleDraft()
     @StateObject private var workdaysDraft = WorkdaysDraft()
+    @ViewState private var activeEditor: Editor?
 
     var body: some View {
         let now = data.isDemo ? data.quota?.observedAt ?? Date.now : Date.now
         GeometryReader { geometry in
             let width = min(1024, max(0, geometry.size.width - 44))
+            let usesInspector = width >= 850
+            let inspectorWidth = min(440, floor(width * 0.43))
+            let dashboardWidth = usesInspector && activeEditor != nil ? width - inspectorWidth - 14 : width
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     header
-                    CurrentSessionPanel(data: data, now: now, width: width, targetDisplay: targetDisplay)
-                    if let error = data.error {
-                        Text(error)
-                            .font(.callout)
-                            .foregroundStyle(Graphite.muted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    quotaAndPlan(width: width, now: now)
-                    RecommendationPanel(data: data, showsAdvice: !hasActiveSession(at: now))
-                    if !data.source.isEmpty {
-                        Text(data.source)
-                            .font(.caption)
-                            .foregroundStyle(Graphite.muted)
-                            .fixedSize(horizontal: false, vertical: true)
+                    HStack(alignment: .top, spacing: 14) {
+                        dashboardCards(width: dashboardWidth, now: now)
+                            .frame(width: dashboardWidth)
+                        if usesInspector, let activeEditor {
+                            Panel(padding: 18) {
+                                editorContent(activeEditor)
+                            }
+                            .frame(width: inspectorWidth)
+                        }
                     }
                 }
                 .frame(width: width, alignment: .leading)
                 .padding(.vertical, 22)
                 .frame(maxWidth: .infinity)
             }
+            .sheet(item: sheetEditor(usesInspector: usesInspector)) { editor in
+                editorContent(editor)
+                    .padding(24)
+                    .frame(width: editor == .sessions ? 500 : 390)
+                    .background(Graphite.panel)
+                    .foregroundStyle(Graphite.ink)
+            }
         }
         .background(Graphite.surface)
         .foregroundStyle(Graphite.ink)
         .tint(Graphite.ink)
         .frame(minWidth: 580, minHeight: 480)
-        .sheet(isPresented: $sessionsDraft.isPresented) {
-            ScheduleEditor(draft: sessionsDraft) { schedule = $0 }
+    }
+
+    private func dashboardCards(width: CGFloat, now: Date) -> some View {
+        VStack(alignment: .leading, spacing: 14) {
+            hero(width: width, now: now)
+            if let error = data.error {
+                Text(error)
+                    .font(.callout)
+                    .foregroundStyle(Graphite.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            if let pace = data.pace {
+                workPlan(pace, now: now)
+            }
+            RecentCodexActivity(summary: data.recentActivity)
+            if !data.source.isEmpty {
+                Text(data.source)
+                    .font(.caption)
+                    .foregroundStyle(Graphite.muted)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
-        .sheet(isPresented: $workdaysDraft.isPresented) {
-            WorkdaysEditor(draft: workdaysDraft, save: changeWorkdays)
+    }
+
+    private func sheetEditor(usesInspector: Bool) -> Binding<Editor?> {
+        Binding(
+            get: { usesInspector ? nil : activeEditor },
+            set: { if !usesInspector { activeEditor = $0 } }
+        )
+    }
+
+    @ViewBuilder
+    private func editorContent(_ editor: Editor) -> some View {
+        switch editor {
+        case .sessions:
+            ScheduleEditor(draft: sessionsDraft, workdays: workdays, cancel: { activeEditor = nil }) {
+                schedule = $0
+                activeEditor = nil
+            }
+        case .workdays:
+            WorkdaysEditor(draft: workdaysDraft, cancel: { activeEditor = nil }) {
+                changeWorkdays($0)
+                activeEditor = nil
+            }
+        }
+    }
+
+    private func toggleEditor(_ editor: Editor) {
+        if activeEditor == editor {
+            activeEditor = nil
+            return
+        }
+        switch editor {
+        case .sessions:
+            sessionsDraft.begin(schedule, workdays: workdays)
+        case .workdays:
+            workdaysDraft.days = workdays
+        }
+        activeEditor = editor
+    }
+
+    private func hero(width: CGFloat, now: Date) -> some View {
+        Panel(surface: Graphite.hero, padding: 22, cornerRadius: 16) {
+            VStack(alignment: .leading, spacing: 16) {
+                heroHeader(now: now)
+
+                switch heroFocus {
+                case .session:
+                    sessionContent(width: width, now: now)
+                case .weekly:
+                    if let quota = data.quota {
+                        weeklyContent(quota, width: width)
+                    } else {
+                        Text(data.error == nil && data.shortQuota == nil ? "Checking quota" : "Weekly quota unavailable")
+                            .font(.callout)
+                            .foregroundStyle(Graphite.muted)
+                    }
+                }
+                if data.quota == nil, let shortQuota = data.shortQuota {
+                    ShortQuotaSummary(quota: shortQuota)
+                }
+                if data.showsRecommendation {
+                    GraphiteDivider()
+                    HeroRecommendation(data: data)
+                }
+            }
+        }
+    }
+
+    private func heroHeader(now: Date) -> some View {
+        let session = data.pace?.currentSession.flatMap { $0.start <= now && now < $0.end ? $0 : nil }
+        return HStack(alignment: .top, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                SectionTitle(text: heroFocus == .weekly ? "Weekly quota" :
+                                session.map(DashboardFormat.sessionName) ?? "Current session")
+                if heroFocus == .session, let session {
+                    Text(DashboardFormat.timeRange(session))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(Graphite.muted)
+                }
+            }
+            Spacer(minLength: 0)
+            GraphiteSegments("Hero focus", selection: $heroFocus, options: [
+                ("Session", .session), ("Weekly", .weekly),
+            ])
+            .help("Choose which target appears at the top of the dashboard")
         }
     }
 
@@ -143,79 +237,48 @@ struct Dashboard: View {
     }
 
     private var quotaView: some View {
-        HStack(spacing: 8) {
-            Text("Quota view")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(Graphite.muted)
-            Picker("Quota view", selection: $targetDisplay) {
-                Text("Used").tag(WeeklyTargetDisplay.used)
-                Text("Left").tag(WeeklyTargetDisplay.left)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .accessibilityLabel("Quota view")
-            .help("Changes Current session, Weekly quota and Work sessions")
-        }
-        .fixedSize(horizontal: true, vertical: false)
+        GraphiteSegments("Quota view", selection: $targetDisplay, options: [
+            ("Used", .used), ("Left", .left),
+        ])
+        .help("Changes Current session, Weekly quota and Work sessions")
     }
 
     private var actions: some View {
         HStack(spacing: 8) {
-            Button("Edit sessions") {
-                sessionsDraft.schedule = schedule
-                sessionsDraft.isPresented = true
-            }
-            .help("Add, remove, name, or change the times of your work sessions")
+            Button("Edit sessions") { toggleEditor(.sessions) }
+                .graphiteButton(.secondary)
+                .accessibilityAddTraits(activeEditor == .sessions ? .isSelected : [])
+                .help("Set work sessions for each day of the week")
 
-            Button("Work days") {
-                workdaysDraft.days = workdays
-                workdaysDraft.isPresented = true
-            }
-            .help("Choose your recurring work days")
+            Button("Work days") { toggleEditor(.workdays) }
+                .graphiteButton(.quiet)
+                .accessibilityAddTraits(activeEditor == .workdays ? .isSelected : [])
+                .help("Choose your recurring work days")
 
-            Button(data.isRefreshing ? "Refreshing…" : "Refresh", action: refresh)
+            Button(action: refresh) {
+                Label(data.isRefreshing ? "Refreshing…" : "Refresh", systemImage: "arrow.clockwise")
+            }
+                .graphiteButton(.quiet)
                 .disabled(data.isRefreshing)
                 .keyboardShortcut("r", modifiers: .command)
                 .help("Check for the latest Codex usage")
         }
-        .controlSize(.regular)
         .fixedSize(horizontal: true, vertical: false)
     }
 
-    @ViewBuilder
-    private func quotaAndPlan(width: CGFloat, now: Date) -> some View {
-        if let quota = data.quota, let pace = data.pace, width >= 788 {
-            HStack(alignment: .top, spacing: 14) {
-                weeklyPanel(quota).frame(width: floor((width - 14) * 0.365))
-                workPlan(pace, now: now)
-            }
-        } else {
-            if let quota = data.quota {
-                weeklyPanel(quota)
-            } else if let shortQuota = data.shortQuota {
-                Panel {
-                    ShortQuotaSummary(quota: shortQuota)
-                }
-            }
-            if let pace = data.pace {
-                workPlan(pace, now: now)
-            }
-        }
+    private func sessionContent(width: CGFloat, now: Date) -> some View {
+        CurrentSessionContent(data: data, now: now, width: width, targetDisplay: targetDisplay)
     }
 
-    private func weeklyPanel(_ quota: QuotaSample) -> some View {
-        WeeklyPanel(quota: quota, pace: data.pace, shortQuota: data.shortQuota,
-                    targetDisplay: targetDisplay, manualResetTarget: manualResetTarget,
-                    demoNow: data.isDemo ? quota.observedAt : nil, changeResetTarget: changeResetTarget)
+    private func weeklyContent(_ quota: QuotaSample, width: CGFloat) -> some View {
+        WeeklyQuotaContent(quota: quota, pace: data.pace, shortQuota: data.shortQuota,
+                           targetDisplay: targetDisplay, manualResetTarget: manualResetTarget,
+                           demoNow: data.isDemo ? quota.observedAt : nil, changeResetTarget: changeResetTarget,
+                           width: width)
     }
 
     private func workPlan(_ pace: Pace, now: Date) -> some View {
         WorkPlanPanel(pace: pace, schedule: schedule, quota: data.quota, now: now, targetDisplay: targetDisplay)
-    }
-
-    private func hasActiveSession(at now: Date) -> Bool {
-        guard let session = data.pace?.currentSession else { return false }
-        return session.start <= now && now < session.end
     }
 
     private var quotaTimestamp: String {
@@ -224,7 +287,28 @@ struct Dashboard: View {
     }
 }
 
-private struct CurrentSessionPanel: View {
+private struct PaceHeroLayout<Readings: View, Details: View>: View {
+    let width: CGFloat
+    @ViewBuilder var readings: Readings
+    @ViewBuilder var details: Details
+
+    var body: some View {
+        if width >= 680 {
+            HStack(alignment: .top, spacing: 24) {
+                readings
+                details.frame(width: floor((width - 68) * 0.38))
+            }
+        } else {
+            VStack(alignment: .leading, spacing: 13) {
+                readings
+                GraphiteDivider()
+                details
+            }
+        }
+    }
+}
+
+private struct CurrentSessionContent: View {
     let data: DashboardData
     let now: Date
     let width: CGFloat
@@ -233,28 +317,19 @@ private struct CurrentSessionPanel: View {
     private var quota: QuotaSample? { data.quota }
 
     var body: some View {
-        Panel(surface: Graphite.hero, padding: 22, cornerRadius: 16) {
-            VStack(alignment: .leading, spacing: 10) {
-                if let pace = data.pace, let session = pace.currentSession, session.start <= now, now < session.end {
-                    if width >= 680 {
-                        HStack(alignment: .center, spacing: 24) {
-                            sessionReadings(pace, session: session)
-                            sessionAdvice(pace)
-                                .frame(width: floor((width - 68) * 0.38))
-                        }
-                    } else {
-                        sessionReadings(pace, session: session)
-                        sessionAdvice(pace)
-                    }
-                } else if let pace = data.pace {
-                    SectionTitle(text: "Current session")
-                    outsideSession(pace.sessions)
-                } else {
-                    SectionTitle(text: "Current session")
-                    Text("Checking quota")
-                        .font(.callout)
-                        .foregroundStyle(Graphite.muted)
+        VStack(alignment: .leading, spacing: 10) {
+            if let pace = data.pace, let session = pace.currentSession, session.start <= now, now < session.end {
+                PaceHeroLayout(width: width) {
+                    sessionReadings(pace, session: session)
+                } details: {
+                    sessionDetails(pace, session: session)
                 }
+            } else if let pace = data.pace {
+                outsideSession(pace.sessions)
+            } else {
+                Text("Checking quota")
+                    .font(.callout)
+                    .foregroundStyle(Graphite.muted)
             }
         }
     }
@@ -267,28 +342,8 @@ private struct CurrentSessionPanel: View {
         let comparison = shiftEndComparison(for: session, quota: quota, now: now)
 
         return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: 10) {
-                VStack(alignment: .leading, spacing: 3) {
-                    SectionTitle(text: DashboardFormat.sessionName(session))
-                    Text(DashboardFormat.timeRange(session))
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(Graphite.muted)
-                }
-                Spacer(minLength: 0)
-                Text("\(DashboardFormat.timeRemaining(until: session.end, now: now)) left")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(Graphite.muted)
-                    .fixedSize()
-            }
-
             HStack(alignment: .bottom, spacing: 16) {
-                if let shownPercent {
-                    QuotaReading(label: "Session budget \(targetDisplay.rawValue)", percent: shownPercent, size: 52)
-                } else {
-                    Text(pace.sessionBudget == 0 ? "No session allowance" : "Session use pending")
-                        .font(.system(size: 24, weight: .semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+                QuotaReading(label: "Session slice \(targetDisplay.rawValue)", percent: shownPercent ?? "—", size: 52)
                 Spacer(minLength: 0)
                 if let targetPercent {
                     QuotaReading(label: "Target \(targetDisplay.rawValue) by now", percent: targetPercent, size: 34, alignment: .trailing)
@@ -302,63 +357,37 @@ private struct CurrentSessionPanel: View {
                               showsRemaining: targetDisplay == .left, thickness: 10)
                     .accessibilityRepresentation {
                         ProgressView(value: min(1, max(0, displayedFraction)), total: 1)
-                            .accessibilityLabel("Session allowance \(kind)")
+                            .accessibilityLabel("Session slice \(kind)")
                             .accessibilityValue(targetPercent.map { "\(shownPercent) \(kind), \($0) target by now" }
                                 ?? "\(shownPercent) \(kind)")
                     }
             }
 
-            VStack(alignment: .leading, spacing: 5) {
-                if let complement = targetDisplay == .used
-                    ? DashboardFormat.sessionRemainingPercent(pace)
-                    : DashboardFormat.sessionPercent(pace, display: .used) {
-                    let prefix = pace.sessionStartInferred ? "Estimated " : ""
-                    Text("\(prefix)\(complement) \(targetDisplay.complement.rawValue) in this session")
-                }
-                if let comparison {
-                    let kind = targetDisplay.rawValue
-                    let actual = DashboardFormat.percent(targetDisplay.percent(for: comparison))
-                    let target = DashboardFormat.percent(targetDisplay.percent(for: session))
-                    Text("\(actual) weekly quota \(kind) · \(target) target \(kind) at \(DashboardFormat.time(session.end))")
-                }
-                if data.guidance?.action != .checkUsage, let projected = pace.sessionProjectedRoomToTarget {
-                    Text(projectedRoomText(projected))
-                }
+            if let comparison {
+                let room = DashboardFormat.percent(max(0, comparison.roomToTarget))
+                Text(comparison.isStale
+                     ? "\(room) of weekly quota available at last reading"
+                     : "\(room) of weekly quota available this session")
+                    .font(.caption)
+                    .foregroundStyle(Graphite.muted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            .font(.caption)
-            .foregroundStyle(Graphite.muted)
-            .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func sessionAdvice(_ pace: Pace) -> some View {
+    private func sessionDetails(_ pace: Pace, session: WorkSession) -> some View {
         let guidance = data.guidance
         let action = guidance?.action ?? .awaitingReadings
 
-        return VStack(alignment: .leading, spacing: 9) {
-            Text(action.title)
-                .font(.system(size: 25, weight: .bold))
-                .tracking(-0.7)
-                .accessibilityAddTraits(.isHeader)
-            guidanceDetail(pace, action: action, guidance: guidance)
-            if data.showsRecommendation {
-                GraphiteDivider()
-                VStack(alignment: .leading, spacing: 4) {
-                    if data.budgetWarning != nil {
-                        Text("Suggested for the next turn")
-                            .font(.caption)
-                            .foregroundStyle(Graphite.muted)
-                    }
-                    Text(data.recommendation)
-                        .font(.callout.weight(.semibold))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
+        return VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .top, spacing: 10) {
+                Metric(label: "Session guidance", value: action.title)
+                Metric(label: "Time left", value: DashboardFormat.timeRemaining(until: session.end, now: now))
             }
+            guidanceDetail(pace, action: action, guidance: guidance)
         }
-        .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Graphite.inset, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func guidanceDetail(_ pace: Pace, action: SessionAction, guidance: SessionGuidance?) -> some View {
@@ -373,32 +402,18 @@ private struct CurrentSessionPanel: View {
                 } else {
                     Text("You’ve reached the cumulative session target.")
                 }
-            } else if action == .awaitingReadings {
-                Text("The tracker needs another quota reading to estimate your pace.")
             }
 
-            if pace.sessionUsed != nil, let rate = guidance?.safeSessionPercentPerHour {
-                Text("Aim for about \(DashboardFormat.percent(rate)) of this session’s budget per hour or less.")
+            if let rate = guidance?.safeSessionPercentPerHour {
+                Text("Aim for about \(DashboardFormat.percent(rate)) of this session’s slice per hour or less.")
             }
             if action != .pause, guidance?.weeklyRisk == true {
                 Text("At this pace, your weekly quota could run out before reset.")
-            }
-            if pace.sessionBudget == nil {
-                Text("Session percentages need a quota reading around the session start.")
             }
         }
         .font(.callout)
         .foregroundStyle(Graphite.muted)
         .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func projectedRoomText(_ projectedRoom: Double) -> String {
-        let rounded = (projectedRoom * 10).rounded() / 10
-        guard rounded != 0 else { return "Projected to finish at the session target" }
-        let amount = DashboardFormat.percent(abs(rounded))
-        return rounded > 0
-            ? "Projected to finish with \(amount) of weekly quota to spare against the target"
-            : "Projected to exceed the session target by \(amount) of weekly quota"
     }
 
     private func outsideSession(_ sessions: [WorkSession]) -> some View {
@@ -457,169 +472,18 @@ private struct QuotaUsageBar: View {
     }
 }
 
-private final class ScheduleDraft: ObservableObject {
-    @Published var isPresented = false
-    @Published var schedule: WorkSchedule = .standard
-
-    func addSession() {
-        let start = suggestedStart
-        schedule.sessions.append(SessionTemplate(
-            id: UUID(), name: "Session \(schedule.sessions.count + 1)", startMinute: start,
-            endMinute: min(start + 60, lastMinute, nextSessionStart(after: start) ?? lastMinute)
-        ))
-    }
-
-    private let lastMinute = 24 * 60 - 1
-
-    private var suggestedStart: Int {
-        guard !schedule.sessions.isEmpty else { return 9 * 60 + 30 }
-        var next = 0
-        var lastGap: Int?
-        for session in schedule.sessions.sorted(by: { $0.startMinute < $1.startMinute }) {
-            if next < session.startMinute { lastGap = next }
-            next = max(next, session.endMinute)
-        }
-        return next < lastMinute ? next : lastGap ?? 9 * 60 + 30
-    }
-
-    private func nextSessionStart(after start: Int) -> Int? {
-        schedule.sessions.map(\.startMinute).filter { $0 > start }.min()
-    }
-}
-
-private struct ScheduleEditor: View {
-    @ObservedObject var draft: ScheduleDraft
-    let save: (WorkSchedule) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Edit sessions")
-                    .font(.title2.weight(.semibold))
-                    .accessibilityAddTraits(.isHeader)
-            }
-
-            if draft.schedule.sessions.isEmpty {
-                Text("No sessions scheduled")
-                    .foregroundStyle(Graphite.muted)
-            } else {
-                ScrollViewReader { scroll in
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            sessionFields
-                            Color.clear.frame(height: 1)
-                                .id("session-editor-end")
-                                .accessibilityHidden(true)
-                        }
-                    }
-                    .frame(maxHeight: 256)
-                    .onChange(of: draft.schedule.sessions.count) { before, after in
-                        if after > before { scroll.scrollTo("session-editor-end", anchor: .bottom) }
-                    }
-                }
-            }
-
-            if !draft.schedule.isValid {
-                Text("Give each session a name and an end time after its start. Sessions cannot overlap.")
-                    .font(.callout)
-                    .foregroundStyle(Graphite.risk)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            HStack(spacing: 8) {
-                Button("Add session", action: draft.addSession)
-                Spacer()
-                Button("Cancel") { draft.isPresented = false }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    guard draft.schedule.isValid else { return }
-                    save(draft.schedule)
-                    draft.isPresented = false
-                }
-                .keyboardShortcut(.defaultAction)
-                .disabled(!draft.schedule.isValid)
-            }
-        }
-        .padding(24)
-        .frame(width: 540)
-        .background(Graphite.panel)
-        .foregroundStyle(Graphite.ink)
-    }
-
-    private var sessionFields: some View {
-        Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
-            GridRow {
-                Text("Name").font(.caption).foregroundStyle(Graphite.muted)
-                Text("Start").font(.caption).foregroundStyle(Graphite.muted)
-                Text("End").font(.caption).foregroundStyle(Graphite.muted)
-            }
-            ForEach(draft.schedule.sessions) { session in
-                GridRow {
-                    TextField("Session name", text: field(session, \.name))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(maxWidth: .infinity)
-                    timePicker("Start time", minutes: field(session, \.startMinute))
-                    timePicker("End time", minutes: field(session, \.endMinute))
-                    Button("Remove") {
-                        draft.schedule.sessions.removeAll { $0.id == session.id }
-                    }
-                    .accessibilityLabel("Remove \(session.name)")
-                }
-            }
-        }
-    }
-
-    private func field<Value>(_ session: SessionTemplate, _ keyPath: WritableKeyPath<SessionTemplate, Value>) -> Binding<Value> {
-        Binding(
-            get: {
-                draft.schedule.sessions.first { $0.id == session.id }?[keyPath: keyPath] ?? session[keyPath: keyPath]
-            },
-            set: { value in
-                if let index = draft.schedule.sessions.firstIndex(where: { $0.id == session.id }) {
-                    draft.schedule.sessions[index][keyPath: keyPath] = value
-                }
-            }
-        )
-    }
-
-    private func timePicker(_ label: String, minutes: Binding<Int>) -> some View {
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .gmt
-        let time = Binding(
-            get: { Date(timeIntervalSince1970: Double(minutes.wrappedValue) * 60) },
-            set: {
-                let parts = calendar.dateComponents([.hour, .minute], from: $0)
-                minutes.wrappedValue = (parts.hour ?? 0) * 60 + (parts.minute ?? 0)
-            }
-        )
-        return DatePicker(label, selection: time, displayedComponents: .hourAndMinute)
-            .datePickerStyle(.stepperField)
-            .labelsHidden()
-            .accessibilityLabel(label)
-            .environment(\.calendar, calendar)
-            .environment(\.timeZone, .gmt)
-    }
-}
-
 private final class WorkdaysDraft: ObservableObject {
-    @Published var isPresented = false
     @Published var days: Set<Workday> = Workday.standard
 }
 
 private struct WorkdaysEditor: View {
     @ObservedObject var draft: WorkdaysDraft
+    let cancel: () -> Void
     let save: (Set<Workday>) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Work days")
-                    .font(.title2.weight(.semibold))
-                    .accessibilityAddTraits(.isHeader)
-                Text("Choose the days that include your work sessions each week.")
-                    .foregroundStyle(Graphite.muted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+            SectionTitle(text: "Work days")
 
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(Workday.allCases, id: \.self) { day in
@@ -628,21 +492,17 @@ private struct WorkdaysEditor: View {
             }
             .toggleStyle(.checkbox)
 
+            GraphiteDivider()
             HStack(spacing: 8) {
                 Spacer()
-                Button("Cancel") { draft.isPresented = false }
+                Button("Cancel", action: cancel)
+                    .graphiteButton(.quiet)
                     .keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    save(draft.days)
-                    draft.isPresented = false
-                }
-                .keyboardShortcut(.defaultAction)
+                Button("Save work days") { save(draft.days) }
+                    .graphiteButton(.primary)
+                    .keyboardShortcut(.defaultAction)
             }
         }
-        .padding(24)
-        .frame(width: 390)
-        .background(Graphite.panel)
-        .foregroundStyle(Graphite.ink)
     }
 
     private func selection(for day: Workday) -> Binding<Bool> {
@@ -659,41 +519,29 @@ private struct WorkdaysEditor: View {
     }
 }
 
-private struct RecommendationPanel: View {
+private struct HeroRecommendation: View {
     let data: DashboardData
-    let showsAdvice: Bool
 
     var body: some View {
-        if showsAdvice && data.showsRecommendation {
-            Panel {
-                VStack(alignment: .leading, spacing: 14) {
-                    Text(data.status)
-                        .font(.subheadline.weight(.semibold))
-
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(data.recommendation)
-                            .font(.system(size: 22, weight: .semibold))
-                            .accessibilityAddTraits(.isHeader)
-                            .fixedSize(horizontal: false, vertical: true)
-                        if !data.recommendationDetail.isEmpty {
-                            Text(data.recommendationDetail)
-                                .font(.callout)
-                                .foregroundStyle(Graphite.muted)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-
-                    GraphiteDivider()
-                    activity
-                }
-            }
-        } else {
-            activity
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            Text(data.budgetWarning == nil ? data.status : "Next turn")
+                .font(.caption.weight(.medium))
+                .foregroundStyle(Graphite.muted)
+                .fixedSize()
+            Text(data.recommendation)
+                .font(.callout.weight(.semibold))
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .combine)
+        .help(data.recommendationDetail)
     }
+}
 
-    private var activity: some View {
-        Text("Recent Codex activity · \(data.recentActivity)")
+private struct RecentCodexActivity: View {
+    let summary: String
+
+    var body: some View {
+        Text("Recent Codex activity · \(summary)")
             .font(.caption)
             .foregroundStyle(Graphite.muted)
             .fixedSize(horizontal: false, vertical: true)
@@ -721,7 +569,7 @@ private struct QuotaReading: View {
     }
 }
 
-private struct WeeklyPanel: View {
+private struct WeeklyQuotaContent: View {
     let quota: QuotaSample
     let pace: Pace?
     let shortQuota: QuotaSample?
@@ -729,6 +577,7 @@ private struct WeeklyPanel: View {
     let manualResetTarget: Date?
     let demoNow: Date?
     let changeResetTarget: (Date?, Date) -> Bool
+    let width: CGFloat
 
     private var usesManualResetTarget: Bool {
         guard let manualResetTarget else { return false }
@@ -736,6 +585,14 @@ private struct WeeklyPanel: View {
     }
 
     var body: some View {
+        PaceHeroLayout(width: width) {
+            readings
+        } details: {
+            details
+        }
+    }
+
+    private var readings: some View {
         let used = quota.usedPercent / 100
         let plannedTarget = pace.flatMap { $0.sessions.isEmpty ? nil : $0.targetPercent }
         let target = plannedTarget.map { $0 / 100 }
@@ -745,67 +602,67 @@ private struct WeeklyPanel: View {
         let status = "\(actualText) \(targetDisplay.rawValue)"
         let other = targetDisplay.complement
 
-        Panel {
-            VStack(alignment: .leading, spacing: 13) {
-                SectionTitle(text: "Weekly quota")
+        return VStack(alignment: .leading, spacing: 13) {
+            HStack(alignment: .bottom, spacing: 10) {
+                QuotaReading(label: "Quota \(targetDisplay.rawValue)", percent: actualText, size: 52)
+                Spacer(minLength: 0)
+                if let targetText {
+                    QuotaReading(label: "Target \(targetDisplay.rawValue) by now", percent: targetText,
+                                 size: 34, alignment: .trailing)
+                }
+            }
 
-                HStack(alignment: .bottom, spacing: 10) {
-                    QuotaReading(label: "Quota \(targetDisplay.rawValue)", percent: actualText, size: 32)
-                    Spacer(minLength: 0)
-                    if let targetText {
-                        QuotaReading(label: "Target \(targetDisplay.rawValue) by now", percent: targetText,
-                                     size: 29, alignment: .trailing)
-                    }
+            QuotaUsageBar(used: used, target: target, showsRemaining: targetDisplay == .left,
+                          thickness: 10)
+                .accessibilityRepresentation {
+                    ProgressView(value: min(100, max(0, actual)), total: 100)
+                        .accessibilityLabel("Weekly allowance \(targetDisplay.rawValue)")
+                        .accessibilityValue(targetText.map { "\(status), \($0) target by now" } ?? status)
                 }
 
-                QuotaUsageBar(used: used, target: target, showsRemaining: targetDisplay == .left)
-                    .accessibilityRepresentation {
-                        ProgressView(value: min(100, max(0, actual)), total: 100)
-                            .accessibilityLabel("Weekly allowance \(targetDisplay.rawValue)")
-                            .accessibilityValue(targetText.map { "\(status), \($0) target by now" } ?? status)
-                    }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("\(DashboardFormat.percent(other.percent(forUsed: quota.usedPercent))) \(other.rawValue)")
-                    if let exhaustionDate = pace?.exhaustionDate {
-                        Text("Projected to run out \(DashboardFormat.dateTime(exhaustionDate))")
-                    }
+            VStack(alignment: .leading, spacing: 4) {
+                Text("\(DashboardFormat.percent(other.percent(forUsed: quota.usedPercent))) \(other.rawValue)")
+                if let exhaustionDate = pace?.exhaustionDate {
+                    Text("Projected to run out \(DashboardFormat.dateTime(exhaustionDate))")
                 }
-                .font(.caption)
-                .foregroundStyle(Graphite.muted)
-                .monospacedDigit()
+            }
+            .font(.caption)
+            .foregroundStyle(Graphite.muted)
+            .monospacedDigit()
+        }
+    }
 
-                if let pace {
-                    GraphiteDivider()
-                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())],
-                              alignment: .leading, spacing: 10) {
-                        Metric(label: "Recent pace", value: DashboardFormat.rate(pace.recentRate))
-                        Metric(label: "Safe pace", value: DashboardFormat.rate(pace.safeRate))
-                        Metric(label: usesManualResetTarget ? "Projected use by target" : "Projected weekly use",
-                               value: DashboardFormat.percent(pace.projectedPercent))
-                        Metric(label: usesManualResetTarget ? "Work time to target" : "Work time left",
-                               value: DashboardFormat.hours(pace.remainingWorkHours))
-                    }
-                    if pace.recentRate == nil && pace.remainingWorkHours > 0 && quota.usedPercent < 100 {
-                        Text("The forecast appears after enough quota readings during work hours.")
-                            .font(.caption)
-                            .foregroundStyle(Graphite.muted)
-                    }
+    private var details: some View {
+        VStack(alignment: .leading, spacing: 13) {
+            if let pace {
+                LazyVGrid(columns: [GridItem(.flexible(), spacing: 10), GridItem(.flexible())],
+                          alignment: .leading, spacing: 10) {
+                    Metric(label: "Recent pace", value: DashboardFormat.rate(pace.recentRate))
+                    Metric(label: "Safe pace", value: DashboardFormat.rate(pace.safeRate))
+                    Metric(label: usesManualResetTarget ? "Projected use by target" : "Projected weekly use",
+                           value: DashboardFormat.percent(pace.projectedPercent))
+                    Metric(label: usesManualResetTarget ? "Work time to target" : "Work time left",
+                           value: DashboardFormat.hours(pace.remainingWorkHours))
                 }
-
+                if pace.recentRate == nil && pace.remainingWorkHours > 0 && quota.usedPercent < 100 {
+                    Text("The forecast appears after enough quota readings during work hours.")
+                        .font(.caption)
+                        .foregroundStyle(Graphite.muted)
+                }
                 GraphiteDivider()
-                ResetTargetDetails(
-                    accountReset: quota.resetsAt,
-                    manualTarget: manualResetTarget,
-                    usesManualTarget: usesManualResetTarget,
-                    demoNow: demoNow,
-                    changeTarget: changeResetTarget
-                )
+            }
 
-                if let shortQuota {
-                    GraphiteDivider()
-                    ShortQuotaSummary(quota: shortQuota)
-                }
+            ResetTargetDetails(
+                accountReset: quota.resetsAt,
+                manualTarget: manualResetTarget,
+                usesManualTarget: usesManualResetTarget,
+                demoNow: demoNow,
+                changeTarget: changeResetTarget
+            )
+
+            if let shortQuota {
+                GraphiteDivider()
+                ShortQuotaSummary(quota: shortQuota)
             }
         }
     }
@@ -847,7 +704,7 @@ private struct ResetTargetDetails: View {
                 guard ResetTargetDraft.nextMinute(after: now) < accountReset else { return }
                 draft.begin(accountReset: accountReset, manualTarget: manualTarget, now: now)
             }
-            .controlSize(.small)
+            .graphiteButton(.secondary)
             .disabled(!canSetTarget)
             .help(canSetTarget ? "Plan around an earlier manual reset" : "The quota window has ended or closes too soon to set a target")
         }
@@ -912,7 +769,8 @@ private struct ResetTargetEditor: View {
 
             DatePicker("Date and time", selection: $draft.selection,
                        displayedComponents: [.date, .hourAndMinute])
-                .datePickerStyle(.stepperField)
+                .datePickerStyle(.field)
+                .graphiteField()
                 .environment(\.calendar, DashboardFormat.calendar)
                 .environment(\.timeZone, DashboardFormat.timeZone)
 
@@ -926,15 +784,18 @@ private struct ResetTargetEditor: View {
             HStack(spacing: 8) {
                 if draft.hasTarget {
                     Button("Clear target") { commit(nil) }
+                        .graphiteButton(.danger)
                         .disabled(draft.windowChanged)
                 }
                 Spacer()
                 Button("Cancel") { draft.isPresented = false }
+                    .graphiteButton(.quiet)
                     .keyboardShortcut(.cancelAction)
                 Button("Save") {
                     guard validationMessage(now: demoNow ?? Date()) == nil else { return }
                     commit(draft.target)
                 }
+                .graphiteButton(.primary)
                 .keyboardShortcut(.defaultAction)
                 .disabled(validation != nil)
             }
@@ -992,6 +853,14 @@ enum WeeklyTargetDisplay: String, CaseIterable {
 }
 
 private struct WorkPlanPanel: View {
+    private struct PlanDay: Identifiable {
+        let date: Date
+        let templates: [SessionTemplate]
+        let sessions: [UUID: WorkSession]
+
+        var id: Date { date }
+    }
+
     let pace: Pace
     let schedule: WorkSchedule
     let quota: QuotaSample?
@@ -999,8 +868,14 @@ private struct WorkPlanPanel: View {
     let targetDisplay: WeeklyTargetDisplay
     private let sessionColumnWidth: CGFloat = 145
 
-    private var templates: [SessionTemplate] {
-        schedule.sessions.sorted { $0.startMinute < $1.startMinute }
+    private var days: [PlanDay] {
+        let calendar = DashboardFormat.calendar
+        let byDay = Dictionary(grouping: pace.sessions) { calendar.startOfDay(for: $0.start) }
+        return byDay.keys.sorted().compactMap { date in
+            guard let day = Workday(rawValue: calendar.component(.weekday, from: date)) else { return nil }
+            let sessions = Dictionary(uniqueKeysWithValues: (byDay[date] ?? []).map { ($0.template.id, $0) })
+            return PlanDay(date: date, templates: schedule.orderedSessions(on: day), sessions: sessions)
+        }
     }
 
     var body: some View {
@@ -1020,14 +895,16 @@ private struct WorkPlanPanel: View {
                         .font(.callout)
                         .foregroundStyle(Graphite.muted)
                 } else {
-                    if templates.count <= 2 {
-                        sessionTable
-                    } else {
-                        ViewThatFits(in: .horizontal) {
-                            sessionTable
-                            ScrollView(.horizontal) {
-                                sessionTable.fixedSize(horizontal: true, vertical: false)
-                            }
+                    let days = days
+                    let count = days.map { $0.templates.count }.max() ?? 0
+                    let sharedTemplates = days.first.map(\.templates).flatMap { first in
+                        days.allSatisfy { $0.templates == first } ? first : nil
+                    }
+                    let table = sessionTable(days, columnCount: count, sharedTemplates: sharedTemplates)
+                    ViewThatFits(in: .horizontal) {
+                        table
+                        ScrollView(.horizontal) {
+                            table.fixedSize(horizontal: true, vertical: false)
                         }
                     }
                 }
@@ -1035,36 +912,34 @@ private struct WorkPlanPanel: View {
         }
     }
 
-    private var sessionTable: some View {
-        let byDay = Dictionary(grouping: pace.sessions) {
-            DashboardFormat.calendar.startOfDay(for: $0.start)
-        }
-        let days = byDay.keys.sorted()
-
-        return Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
+    private func sessionTable(_ days: [PlanDay], columnCount: Int, sharedTemplates: [SessionTemplate]?) -> some View {
+        Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 8) {
             GridRow {
                 columnHeader("Workday", minimumWidth: 96)
-                ForEach(templates) { template in
-                    let name = template.name.trimmingCharacters(in: .whitespacesAndNewlines)
-                    let title = "\(name) · \(scheduledRange(template))"
-                    columnHeader(name, time: scheduledRange(template), minimumWidth: sessionColumnWidth)
-                        .help(title)
+                ForEach(0..<columnCount, id: \.self) { index in
+                    if let template = sharedTemplates?[index] {
+                        let name = template.name.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let time = scheduledRange(template)
+                        columnHeader(name, time: time, minimumWidth: sessionColumnWidth)
+                            .help("\(name) · \(time)")
+                    } else {
+                        columnHeader("Session \(index + 1)", minimumWidth: sessionColumnWidth)
+                    }
                 }
             }
             GraphiteDivider()
                 .gridCellUnsizedAxes(.horizontal)
-            ForEach(days, id: \.self) { day in
-                let sessions = Dictionary(uniqueKeysWithValues: (byDay[day] ?? []).map { ($0.template.id, $0) })
+            ForEach(days) { day in
                 GridRow(alignment: .top) {
-                    Text(DashboardFormat.day(day))
+                    Text(DashboardFormat.day(day.date))
                         .font(.callout.weight(.medium))
                         .frame(maxWidth: .infinity, alignment: .leading)
-                    ForEach(templates) { template in
-                        allocation(sessions[template.id], scheduledTime: scheduledRange(template))
+                    ForEach(0..<columnCount, id: \.self) { index in
+                        allocation(for: day, at: index, namesInHeader: sharedTemplates != nil)
                             .frame(minWidth: sessionColumnWidth, maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                if day != days.last {
+                if day.id != days.last?.id {
                     GraphiteDivider()
                         .gridCellUnsizedAxes(.horizontal)
                 }
@@ -1094,9 +969,13 @@ private struct WorkPlanPanel: View {
     }
 
     @ViewBuilder
-    private func allocation(_ session: WorkSession?, scheduledTime: String) -> some View {
-        if let session {
-            sessionAllocation(session, scheduledTime: scheduledTime)
+    private func allocation(for day: PlanDay, at index: Int, namesInHeader: Bool) -> some View {
+        if !day.templates.indices.contains(index) {
+            Text("—")
+                .foregroundStyle(Graphite.muted)
+                .accessibilityLabel("No session scheduled")
+        } else if let session = day.sessions[day.templates[index].id] {
+            sessionAllocation(session, namesInHeader: namesInHeader)
         } else {
             Text("—")
                 .foregroundStyle(Graphite.muted)
@@ -1104,12 +983,16 @@ private struct WorkPlanPanel: View {
         }
     }
 
-    private func sessionAllocation(_ session: WorkSession, scheduledTime: String) -> some View {
+    private func sessionAllocation(_ session: WorkSession, namesInHeader: Bool) -> some View {
         let isCurrent = session.id == pace.currentSession?.id
         let comparison = isCurrent ? shiftEndComparison(for: session, quota: quota, now: now) : nil
         let target = DashboardFormat.percent(targetDisplay.percent(for: session))
 
         return VStack(alignment: .leading, spacing: 2) {
+            if !namesInHeader {
+                Text(DashboardFormat.sessionName(session))
+                    .font(.caption.weight(.semibold))
+            }
             if let comparison {
                 activeComparison(target: target, comparison: comparison)
             } else {
@@ -1128,7 +1011,7 @@ private struct WorkPlanPanel: View {
                 }
             }
             let range = DashboardFormat.timeRange(session)
-            if range != scheduledTime {
+            if !namesInHeader || range != scheduledRange(session.template) {
                 Text(range)
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(Graphite.muted)
@@ -1185,7 +1068,8 @@ private struct WorkPlanPanel: View {
         let target = DashboardFormat.percent(targetDisplay.percent(for: session))
         let current = session.id == pace.currentSession?.id ? ", current session" : ""
         let range = DashboardFormat.timeRange(session)
-        var label = "Planned weekly quota \(targetDisplay.rawValue) by session end \(target), \(range), \(allocation) session share\(current)"
+        let name = DashboardFormat.sessionName(session)
+        var label = "\(name), planned weekly quota \(targetDisplay.rawValue) by session end \(target), \(range), \(allocation) session share\(current)"
         if let comparison {
             let actual = DashboardFormat.percent(targetDisplay.percent(for: comparison))
             let room = comparison.isStale ? lastReading : roomDescription(comparison.roomToTarget)
@@ -1301,18 +1185,8 @@ enum DashboardFormat {
         value.map { ($0 / 100).formatted(.percent.precision(.fractionLength(0 ... 1))) } ?? "—"
     }
 
-    static func sessionPercent(_ amount: Double?, budget: Double?) -> String {
-        guard let amount, let budget, budget > 0 else { return percent(nil) }
-        return percent(100 * amount / budget)
-    }
-
-    static func sessionRemainingPercent(_ pace: Pace) -> String? {
-        guard let budget = pace.sessionBudget, budget > 0, let room = pace.sessionRoomToTarget else { return nil }
-        return sessionPercent(min(budget, max(0, room)), budget: budget)
-    }
-
     static func sessionPercent(_ pace: Pace, display: WeeklyTargetDisplay) -> String? {
-        pace.sessionUsedFraction.map { percent(display.percent(forUsed: 100 * $0)) }
+        pace.sessionUsedFraction.map { percent(max(0, display.percent(forUsed: 100 * $0))) }
     }
 
     static func menuBarTitle(for data: DashboardData, now: Date, display: WeeklyTargetDisplay) -> String {

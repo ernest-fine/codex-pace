@@ -9,7 +9,8 @@ cp Info.plist "$app/Contents/Info.plist"
 cp AppIcon.icns "$app/Contents/Resources/AppIcon.icns"
 swiftc -O -target "$(uname -m)-apple-macosx14.0" \
     -module-cache-path "$build_dir/modules" \
-    Advice.swift BudgetNotifications.swift BudgetWarning.swift CodexPace.swift Dashboard.swift Pacing.swift Telemetry.swift \
+    Advice.swift BudgetNotifications.swift BudgetWarning.swift CodexPace.swift Dashboard.swift \
+    Controls.swift Pacing.swift ScheduleEditor.swift Telemetry.swift \
     -o "$app/Contents/MacOS/CodexPace"
 /usr/bin/codesign --force --sign - --timestamp=none "$app"
 if [[ -d 'Codex Pace.app' ]]; then

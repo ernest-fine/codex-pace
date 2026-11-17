@@ -5,6 +5,8 @@ namespace CodexPace;
 internal static class Planner
 {
     private static readonly TimeSpan QuotaFreshness = TimeSpan.FromMinutes(45);
+    private static readonly TimeSpan NotificationFreshness = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan NotificationHorizon = TimeSpan.FromMinutes(30);
     private static readonly string[] EffortOrder = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 
     private enum TaskLoad { Routine, Standard, Demanding }
@@ -38,6 +40,63 @@ internal static class Planner
         return new DashboardData(
             quota, shortQuota, pace, guidance, status, recommendation, detail, ActivityCaption(activity, models),
             telemetry?.Source ?? "Connecting to Codex", telemetry?.Error, warning);
+    }
+
+    public static IEnumerable<BudgetWarning> ImmediateWarnings(QuotaSample? quota, Pace? pace, DateTimeOffset now)
+    {
+        if (quota is null || quota.UsedPercent is not (>= 0 and <= 100)
+            || quota.ResetsAt <= now || quota.ObservedAt > now
+            || now - quota.ObservedAt > NotificationFreshness) yield break;
+
+        if (quota.UsedPercent >= 100)
+        {
+            yield return MakeWarning(quota, "Pause non-urgent turns",
+                "You’ve reached your weekly Codex limit.", quota.ResetsAt) with { Title = "Codex weekly limit reached" };
+            yield break;
+        }
+
+        if (pace is null) yield break;
+
+        var imminent = new List<(TimeSpan UntilTarget, BudgetWarning Warning)>();
+        if (pace.CurrentSession is { } session && session.Start <= now && now < session.End
+            && pace.SessionRoomToTarget is double room)
+        {
+            if (room <= 0)
+            {
+                imminent.Add((TimeSpan.Zero, MakeWarning(quota, "Pause non-urgent turns",
+                    "You’ve reached your session target.", session.End, session) with { Title = "Codex session target reached" }));
+            }
+            else if (pace.RecentRate is double rate && double.IsFinite(rate) && rate > 0)
+            {
+                double hoursToTarget = room / rate;
+                double leadHours = Math.Min(NotificationHorizon.TotalHours, (session.End - now).TotalHours);
+                if (hoursToTarget <= leadHours)
+                {
+                    var untilTarget = TimeSpan.FromHours(hoursToTarget);
+                    imminent.Add((untilTarget, ForecastWarning(quota, untilTarget, session.End, session)));
+                }
+            }
+        }
+
+        if (pace.RecentRate is > 0 && pace.ExhaustionDate is { } exhaustion
+            && exhaustion >= now && exhaustion - now <= NotificationHorizon)
+        {
+            var untilTarget = exhaustion - now;
+            imminent.Add((untilTarget, ForecastWarning(quota, untilTarget, pace.PlanEndsAt)));
+        }
+
+        foreach (var candidate in imminent.OrderBy(candidate => candidate.UntilTarget)
+                     .ThenBy(candidate => candidate.Warning.Key.StartsWith("weekly.", StringComparison.Ordinal) ? 0 : 1).Take(1))
+            yield return candidate.Warning;
+    }
+
+    private static BudgetWarning ForecastWarning(
+        QuotaSample quota, TimeSpan untilTarget, DateTimeOffset deadline, WorkSession? session = null)
+    {
+        int minutes = Math.Max(1, (int)Math.Ceiling(untilTarget.TotalMinutes));
+        string target = session is null ? "the weekly limit" : "your session target";
+        return MakeWarning(quota, "Use a lower effort or pause non-urgent turns.",
+            $"At this pace, you could reach {target} in about {minutes} min.", deadline, session) with { Title = "Slow down on Codex" };
     }
 
     public static string TrayCaption(DashboardData data, DateTimeOffset now, bool showUsed)

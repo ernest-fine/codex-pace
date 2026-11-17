@@ -1,22 +1,20 @@
 # Codex Pace for Windows
 
 1. Pick **x64** for an Intel or AMD Windows PC, or **ARM64** for a Windows on Arm PC. Windows lists its system type under **Settings → System → About**.
-2. Extract the zip and run `CodexPace.exe`. The bundle includes its .NET Desktop runtime.
-3. Sign in to Codex with your ChatGPT account on that PC, then use **Refresh**. Codex Pace reads the account quota through the native Codex CLI and can recover recent readings from its Windows session history.
+2. Extract the ZIP and run `CodexPace.exe` from that folder. Keep the other extracted files with it.
+3. Sign in to Codex on that PC, then click **Refresh** in Codex Pace.
 
-The app is built for current Windows 11 releases. This is a portable, unsigned build.
-
-Graphite follows changes to the Windows app appearance while Codex Pace is open. Session times and reset timestamps use the computer’s time zone.
+Codex Pace uses WinUI 3 on Windows 11 and follows Windows light or dark mode. Session and reset times use your computer’s local time zone.
 
 ## Using the tracker
 
 - The session headline shows how much of the opening session allowance you’ve used beside the target by now. The bar is green through the target, amber up to 10% over it, and red above that. The allowance includes unused quota from earlier shifts.
 - The tray icon’s tooltip shows the session, pace advice, and usage and target percentages. Double-click it to open the dashboard. Closing the window leaves the tracker active. Right-click the tray icon and choose **Quit** to exit.
-- Use **Settings → Edit sessions** to add, name, and remove sessions. The same-day session times apply to the recurring days selected under **Settings → Work days**. The default is Monday through Friday.
+- Use **Schedule → Edit sessions** to set your hours. The same hours repeat on the days you choose under **Schedule → Work days**. The default is Monday through Friday.
 - **Set reset target** sets a planning deadline. Redeem the reset in Codex.
 - **Weekly quota** puts actual usage beside the target by now. The progress bar marks that target for the selected work days.
-- The header’s **Used / Left** switch changes actual usage and targets in the session hero, Weekly quota card and Work sessions table.
-- Budget warnings include the recommended model and effort. **Settings → Send test notification** checks the Windows notification path. Windows controls notification visibility under **Settings → System → Notifications**.
+- Choose **Session** or **Weekly** in the quota card. Use **Used** or **Left** to choose how the app shows quota and targets.
+- Look under **Next turn** for model and effort suggestions. Pace can also tell you to slow down when a fresh reading puts your session target or weekly limit within 30 minutes. Use **Schedule → Send test notification** to check that Windows can show alerts.
 
 Settings and observed quota history stay in `%LOCALAPPDATA%\Codex Pace`. The Windows edition keeps its own local schedule and preferences.
 

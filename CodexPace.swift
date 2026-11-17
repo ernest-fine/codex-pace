@@ -100,7 +100,8 @@ final class TrackerStore: ObservableObject {
             telemetry: example.telemetry, history: example.telemetry.history,
             now: example.now, isRefreshing: false, isDemo: true
         )
-        guard let warning = preview.budgetWarning else { return }
+        guard let pace = preview.pace, let quota = preview.quota,
+              let warning = budgetNotification(for: pace, quota: quota, now: example.now) else { return }
         notificationTestStatus = "Sending test notification…"
         Task {
             do {
@@ -134,7 +135,7 @@ final class TrackerStore: ObservableObject {
                 readTelemetry(now: Date(), force: force)
             }.value
             let now = Date()
-            latestObservedQuota = result.quota
+            latestObservedQuota = result.source == "Codex account" ? result.quota : nil
             if let target = resetTarget, let observed = result.quota,
                observed.resetsAt != target.windowResetsAt {
                 saveResetTarget(nil)
@@ -185,10 +186,11 @@ final class TrackerStore: ObservableObject {
 
     private func updateBudgetWarning(now: Date) {
         guard demo == nil else { return }
-        let fresh = latestObservedQuota.map {
-            $0.resetsAt > now && (0...300).contains(now.timeIntervalSince($0.observedAt))
-        } ?? false
-        notifications.update(fresh ? data.budgetWarning : nil)
+        let warning = latestObservedQuota.flatMap { quota -> BudgetWarning? in
+            guard quota == data.quota, let pace = data.pace else { return nil }
+            return budgetNotification(for: pace, quota: quota, now: now)
+        }
+        notifications.update(warning)
     }
 
     private func updateDashboard(now: Date? = nil) {
@@ -228,6 +230,7 @@ struct CodexPaceApp: App {
     @StateObject private var store = TrackerStore()
     @Environment(\.openWindow) private var openWindow
     @AppStorage("weeklyTargetDisplay") private var targetDisplay: WeeklyTargetDisplay = .left
+    @AppStorage("heroFocus") private var heroFocus: HeroFocus = .session
 
     var body: some Scene {
         let menuBarTitle = DashboardFormat.menuBarTitle(for: store.data, now: Date(), display: targetDisplay)
@@ -236,7 +239,7 @@ struct CodexPaceApp: App {
                 data: store.data, schedule: $store.schedule,
                 workdays: store.workdays, changeWorkdays: store.changeWorkdays,
                 manualResetTarget: store.manualResetTargetDate, changeResetTarget: store.changeResetTarget,
-                refresh: store.refresh, targetDisplay: $targetDisplay
+                refresh: store.refresh, targetDisplay: $targetDisplay, heroFocus: $heroFocus
             )
                 .task { store.start() }
         }

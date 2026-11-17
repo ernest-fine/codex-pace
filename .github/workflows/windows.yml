@@ -1,0 +1,104 @@
+name: Windows packages
+
+on:
+  push:
+    paths:
+      - "windows/**"
+      - ".github/workflows/windows.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Windows ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            platform: x64
+            runner: windows-2025-vs2026
+          - arch: arm64
+            platform: ARM64
+            runner: windows-11-vs2026-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    env:
+      ARCH: ${{ matrix.arch }}
+      PLATFORM: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+      - name: Build the Windows app
+        run: |
+          $output = Join-Path $env:RUNNER_TEMP "CodexPace"
+          dotnet publish windows/CodexPace.csproj -c Release -r "win-$env:ARCH" --self-contained true "-p:Platform=$env:PLATFORM" -o $output
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "PACE_OUTPUT=$output" >> $env:GITHUB_ENV
+      - name: Open the sample dashboard
+        run: |
+          $app = Start-Process (Join-Path $env:PACE_OUTPUT "CodexPace.exe") -ArgumentList "--demo" -WorkingDirectory $env:PACE_OUTPUT -PassThru
+          try {
+            $deadline = (Get-Date).AddSeconds(45)
+            do {
+              Start-Sleep -Milliseconds 500
+              $app.Refresh()
+              if ($app.HasExited) { throw "Codex Pace exited before opening (code $($app.ExitCode))." }
+            } until (($app.MainWindowHandle -ne 0 -and $app.Responding) -or (Get-Date) -ge $deadline)
+            if ($app.MainWindowHandle -eq 0 -or -not $app.Responding) { throw "Codex Pace did not open a responsive window." }
+            if ($env:ARCH -eq "x64") {
+              try {
+                Add-Type -AssemblyName System.Drawing.Common
+                Add-Type -TypeDefinition @'
+          using System;
+          using System.Runtime.InteropServices;
+          public static class PacePreview {
+              [StructLayout(LayoutKind.Sequential)]
+              public struct Rect { public int Left, Top, Right, Bottom; }
+              [DllImport("user32.dll")]
+              public static extern bool GetWindowRect(IntPtr handle, out Rect rect);
+              [DllImport("user32.dll")]
+              public static extern bool SetForegroundWindow(IntPtr handle);
+          }
+          '@
+                [PacePreview]::SetForegroundWindow($app.MainWindowHandle) | Out-Null
+                Start-Sleep -Seconds 1
+                $rect = [PacePreview+Rect]::new()
+                if (-not [PacePreview]::GetWindowRect($app.MainWindowHandle, [ref] $rect)) { throw "No window bounds." }
+                $width = $rect.Right - $rect.Left
+                $height = $rect.Bottom - $rect.Top
+                if ($width -lt 300 -or $height -lt 200) { throw "Window too small for the preview." }
+                $image = [System.Drawing.Bitmap]::new($width, $height)
+                try {
+                  $graphics = [System.Drawing.Graphics]::FromImage($image)
+                  try { $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $image.Size) }
+                  finally { $graphics.Dispose() }
+                  $image.Save((Join-Path $env:RUNNER_TEMP "Codex-Pace-Windows-Preview.png"))
+                } finally { $image.Dispose() }
+              } catch { Write-Warning "Preview capture was unavailable: $_" }
+            }
+          } finally {
+            if (-not $app.HasExited) { Stop-Process -Id $app.Id }
+          }
+      - name: Zip the app and its files
+        run: |
+          $archName = if ($env:ARCH -eq "arm64") { "arm64" } else { "x64" }
+          $archive = Join-Path $env:RUNNER_TEMP "Codex-Pace-Windows-$archName.zip"
+          tar.exe -a -cf $archive -C $env:PACE_OUTPUT .
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          "PACE_ARCHIVE=$archive" >> $env:GITHUB_ENV
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Windows-${{ matrix.arch }}
+          path: ${{ env.PACE_ARCHIVE }}
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        if: matrix.arch == 'x64'
+        with:
+          name: Windows-preview
+          path: ${{ runner.temp }}/Codex-Pace-Windows-Preview.png
+          if-no-files-found: ignore

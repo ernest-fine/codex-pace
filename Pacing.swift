@@ -50,39 +50,64 @@ struct SessionTemplate: Codable, Equatable, Sendable, Identifiable {
 }
 
 struct WorkSchedule: Codable, Equatable, Sendable {
-    var sessions: [SessionTemplate]
+    private let defaultSessions: [SessionTemplate]
+    private var daySessions: [Workday: [SessionTemplate]] = [:]
 
     static let standard = Self(sessions: legacySessions(morningStart: 570, morningEnd: 750,
                                                        afternoonStart: 840, afternoonEnd: 1095))
 
     init(sessions: [SessionTemplate]) {
-        self.sessions = sessions
+        defaultSessions = sessions
     }
 
     private enum CodingKeys: String, CodingKey {
-        case sessions, morningStart, morningEnd, afternoonStart, afternoonEnd
+        case sessions, daySessions, morningStart, morningEnd, afternoonStart, afternoonEnd
     }
 
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
         if let sessions = try values.decodeIfPresent([SessionTemplate].self, forKey: .sessions) {
-            self.sessions = sessions
+            defaultSessions = sessions
         } else {
-            sessions = try Self.legacySessions(
+            defaultSessions = try Self.legacySessions(
                 morningStart: values.decode(Int.self, forKey: .morningStart),
                 morningEnd: values.decode(Int.self, forKey: .morningEnd),
                 afternoonStart: values.decode(Int.self, forKey: .afternoonStart),
                 afternoonEnd: values.decode(Int.self, forKey: .afternoonEnd)
             )
         }
+        daySessions = try values.decodeIfPresent([Workday: [SessionTemplate]].self, forKey: .daySessions) ?? [:]
     }
 
     func encode(to encoder: Encoder) throws {
         var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(sessions, forKey: .sessions)
+        try values.encode(defaultSessions, forKey: .sessions)
+        if !daySessions.isEmpty {
+            try values.encode(daySessions, forKey: .daySessions)
+        }
+    }
+
+    func sessions(on day: Workday) -> [SessionTemplate] {
+        daySessions[day] ?? defaultSessions
+    }
+
+    func orderedSessions(on day: Workday) -> [SessionTemplate] {
+        sessions(on: day).sorted { $0.startMinute < $1.startMinute }
+    }
+
+    mutating func setSessions(_ sessions: [SessionTemplate], on day: Workday) {
+        daySessions[day] = sessions == defaultSessions ? nil : sessions
+    }
+
+    var invalidDays: [Workday] {
+        Workday.allCases.filter { !Self.areValid(sessions(on: $0)) }
     }
 
     var isValid: Bool {
+        Self.areValid(defaultSessions) && invalidDays.isEmpty
+    }
+
+    private static func areValid(_ sessions: [SessionTemplate]) -> Bool {
         let ordered = sessions.sorted { $0.startMinute < $1.startMinute }
         return Set(ordered.map(\.id)).count == ordered.count
             && ordered.allSatisfy {
@@ -128,14 +153,7 @@ struct WorkSession: Identifiable {
     }
 }
 
-struct ObservedSessionUsage {
-    let since: Date
-    let used: Double?
-    let target: Double
-}
-
 enum SessionPaceStatus {
-    case awaitingReadings
     case onTrack
     case overPace
     case budgetUsed
@@ -179,36 +197,22 @@ struct Pace {
     let exhaustionDate: Date?
     let sessionRoomToTarget: Double?
     let sessionProjectedRoomToTarget: Double?
-    let sessionBudget: Double?
-    let sessionTarget: Double?
-    let sessionUsed: Double?
-    let sessionStartInferred: Bool
-    let observedSessionUsage: ObservedSessionUsage?
+    let sessionTargetFraction: Double?
 
     var sessionUsedFraction: Double? {
-        guard let sessionUsed, let sessionBudget, sessionBudget > 0 else { return nil }
-        return sessionUsed / sessionBudget
+        guard let share = currentSession?.targetPercent, share > 0, let sessionRoomToTarget else { return nil }
+        return (share - sessionRoomToTarget) / share
     }
 
-    var sessionTargetFraction: Double? {
-        guard let sessionTarget, let sessionBudget, sessionBudget > 0 else { return nil }
-        return sessionTarget / sessionBudget
+    fileprivate var sessionDeviation: Double? {
+        guard let share = currentSession?.targetPercent, let sessionUsedFraction, let sessionTargetFraction else { return nil }
+        return (sessionUsedFraction - sessionTargetFraction) * share
     }
 
     var sessionStatus: SessionPaceStatus? {
-        guard let sessionRoomToTarget else { return nil }
+        guard let sessionRoomToTarget, let sessionDeviation else { return nil }
         if sessionRoomToTarget <= 0 { return .budgetUsed }
-
-        let usage: (used: Double, target: Double)
-        if let sessionUsed, let sessionTarget {
-            usage = (sessionUsed, sessionTarget)
-        } else if let observedSessionUsage, let used = observedSessionUsage.used {
-            usage = (used, observedSessionUsage.target)
-        } else {
-            return .awaitingReadings
-        }
-
-        return usage.used > usage.target + 0.5 ? .overPace : .onTrack
+        return sessionDeviation > 0.5 ? .overPace : .onTrack
     }
 }
 
@@ -252,19 +256,17 @@ func sessionGuidance(for pace: Pace, quota: QuotaSample?, now: Date) -> SessionG
         action = .pause
     } else if weeklyRisk || projectedOverBudget || sessionStatus == .overPace {
         action = .slowDown
-    } else if let budget = pace.sessionBudget, let used = pace.sessionUsed, let target = pace.sessionTarget,
-              target - used >= max(0.5, budget * 0.10) {
+    } else if let deviation = pace.sessionDeviation, -deviation >= max(0.5, session.targetPercent * 0.10) {
         action = .roomToSpeedUp
     } else {
         action = sessionStatus == .onTrack ? .keepPace : .awaitingReadings
     }
 
     let safeSessionPercentPerHour: Double?
-    if action != .pause, let budget = pace.sessionBudget, budget > 0,
-       pace.sessionUsed != nil, let room = pace.sessionRoomToTarget, room > 0 {
+    if action != .pause, session.targetPercent > 0, let room = pace.sessionRoomToTarget, room > 0 {
         let remainingHours = session.end.timeIntervalSince(now) / hour
         let sessionRate = room / remainingHours
-        safeSessionPercentPerHour = min(sessionRate, pace.safeRate ?? sessionRate) * 100 / budget
+        safeSessionPercentPerHour = min(sessionRate, pace.safeRate ?? sessionRate) * 100 / session.targetPercent
     } else {
         safeSessionPercentPerHour = nil
     }
@@ -304,47 +306,8 @@ func calculatePace(
         projectedAdditionalUsage.map { room - $0 }
     }
 
-    let firstSessionSample = currentSession.flatMap { session in
-        samples.first { $0.observedAt >= session.start }
-    }
-    let baseline: (sample: QuotaSample, inferred: Bool)? = currentSession.flatMap { session in
-        guard let beforeStart = samples.last(where: { $0.observedAt <= session.start }) else {
-            return nil
-        }
-        let timeBeforeStart = session.start.timeIntervalSince(beforeStart.observedAt)
-        if timeBeforeStart <= 10 * minute { return (beforeStart, false) }
-        guard firstSessionSample?.usedPercent == beforeStart.usedPercent else { return nil }
-        return (beforeStart, true)
-    }
-    let sessionUsed: Double? = if let baseline, firstSessionSample != nil, let latest = samples.last {
-        max(0, latest.usedPercent - baseline.sample.usedPercent)
-    } else {
-        nil
-    }
-    let sessionBudget: Double? = if let currentSession, let baseline {
-        max(0, currentSession.cumulativeTargetPercent - baseline.sample.usedPercent)
-    } else {
-        nil
-    }
-    let sessionTarget: Double? = if let currentSession, let sessionBudget {
-        sessionBudget * now.timeIntervalSince(currentSession.start)
-            / currentSession.end.timeIntervalSince(currentSession.start)
-    } else {
-        nil
-    }
-    let observedSessionUsage: ObservedSessionUsage? = if baseline == nil,
-        let currentSession, let firstSessionSample, let latest = samples.last {
-        ObservedSessionUsage(
-            since: firstSessionSample.observedAt,
-            used: latest.observedAt > firstSessionSample.observedAt
-                ? max(0, latest.usedPercent - firstSessionSample.usedPercent)
-                : nil,
-            target: max(0, currentSession.cumulativeTargetPercent - firstSessionSample.usedPercent)
-                * now.timeIntervalSince(firstSessionSample.observedAt)
-                / currentSession.end.timeIntervalSince(firstSessionSample.observedAt)
-        )
-    } else {
-        nil
+    let sessionTargetFraction = currentSession.map { session in
+        now.timeIntervalSince(session.start) / session.end.timeIntervalSince(session.start)
     }
 
     return Pace(
@@ -359,11 +322,7 @@ func calculatePace(
         exhaustionDate: estimatedExhaustion(sessions: sessions, now: now, used: used, recentRate: recentRate),
         sessionRoomToTarget: sessionRoomToTarget,
         sessionProjectedRoomToTarget: sessionProjectedRoomToTarget,
-        sessionBudget: sessionBudget,
-        sessionTarget: sessionTarget,
-        sessionUsed: sessionUsed,
-        sessionStartInferred: baseline?.inferred ?? false,
-        observedSessionUsage: observedSessionUsage
+        sessionTargetFraction: sessionTargetFraction
     )
 }
 
@@ -372,12 +331,11 @@ private func makeWorkSessions(
 ) -> [WorkSession] {
     guard start < end, !workdays.isEmpty else { return [] }
     let calendar = WorkClock.calendar
-    let templates = schedule.sessions.sorted { $0.startMinute < $1.startMinute }
     var day = calendar.startOfDay(for: start)
     var intervals: [(interval: DateInterval, template: SessionTemplate)] = []
     while day < end {
         if let weekday = Workday(rawValue: calendar.component(.weekday, from: day)), workdays.contains(weekday) {
-            for template in templates {
+            for template in schedule.orderedSessions(on: weekday) {
                 guard let opening = WorkClock.boundary(on: day, at: template.startMinute, calendar: calendar),
                       let closing = WorkClock.boundary(on: day, at: template.endMinute, calendar: calendar) else { continue }
                 let sessionStart = max(start, opening)
