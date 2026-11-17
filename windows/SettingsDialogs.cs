@@ -237,7 +237,7 @@ internal static class SettingsDialogs
         element.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private static void Place(Grid grid, UIElement element, int row, int column)
+    private static void Place(Grid grid, FrameworkElement element, int row, int column)
     {
         Grid.SetRow(element, row);
         Grid.SetColumn(element, column);

@@ -110,8 +110,8 @@ internal sealed class MainWindow : Window
         settings.Flyout = menu;
 
         var title = Text("Codex Pace", 29, strong: true);
-        AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.HeadingLevel1);
-        AutomationProperties.SetHeadingLevel(heroTitle, AutomationHeadingLevel.HeadingLevel2);
+        AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.Level1);
+        AutomationProperties.SetHeadingLevel(heroTitle, AutomationHeadingLevel.Level2);
         ToolTipService.SetToolTip(refresh, "Check for the latest Codex usage");
 
         var controls = Horizontal(8, ModeSelector("Quota view", used, left), settings, refresh);
@@ -119,7 +119,7 @@ internal sealed class MainWindow : Window
         var heroHeader = Pair(Stack(3, heroTitle, heroSubtitle), ModeSelector("Focus", sessionMode, weeklyMode), 392);
         var mainCard = Card(Stack(15, heroHeader, heroContent, shortQuota, suggestion), hero, 22);
         var planTitle = Text("Work sessions", 16, strong: true);
-        AutomationProperties.SetHeadingLevel(planTitle, AutomationHeadingLevel.HeadingLevel2);
+        AutomationProperties.SetHeadingLevel(planTitle, AutomationHeadingLevel.Level2);
         var planCard = Card(Stack(10, Pair(planTitle, planCaption, 330), planEmpty, planScroller), panel, 17);
         var content = new Border
         {
