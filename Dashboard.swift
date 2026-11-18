@@ -28,9 +28,10 @@ struct DashboardData {
     var isDemo: Bool
     var error: String?
     var budgetWarning: BudgetWarning? = nil
+    var fastModeRecommendation: String? = nil
 
     var showsRecommendation: Bool {
-        budgetWarning != nil || recommendationTone == .critical
+        budgetWarning != nil || recommendationTone == .critical || fastModeRecommendation != nil
     }
 }
 
@@ -580,11 +581,11 @@ private struct HeroRecommendation: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(data.budgetWarning == nil ? data.status : "Next turn")
+            Text(data.budgetWarning != nil || data.fastModeRecommendation != nil ? "Next turn" : data.status)
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Graphite.muted)
                 .fixedSize()
-            Text(data.recommendation)
+            Text(data.fastModeRecommendation.map { "\(data.recommendation) · \($0)" } ?? data.recommendation)
                 .font(.system(size: 18, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
         }

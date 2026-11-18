@@ -256,8 +256,8 @@ internal sealed class PaceApplication
             new QuotaSample(DemoTime.AddHours(hours), reset, 10_080, used)).ToArray();
         ModelOption[] models =
         [
-            new("gpt-6.1-sol", "GPT-6.1 Sol", new[] { "low", "medium", "high", "xhigh", "max", "ultra" }, "medium", true),
-            new("gpt-6-luna", "GPT-6 Luna", new[] { "low", "medium", "high", "max" }, "high", false)
+            new("gpt-6.1-sol", "GPT-6.1 Sol", new[] { "low", "medium", "high", "xhigh", "max", "ultra" }, "medium", true, SupportsFastMode: true),
+            new("gpt-6-luna", "GPT-6 Luna", new[] { "low", "medium", "high", "max" }, "high", false, SupportsFastMode: true)
         ];
         return new Telemetry(history[^1], null, history,
             new Activity(DemoTime, "gpt-6.1-sol", "high", 4, 180_000), models, "Example data", null);

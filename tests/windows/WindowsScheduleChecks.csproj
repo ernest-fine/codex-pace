@@ -12,5 +12,6 @@
     <Compile Include="../../windows/ScheduleDraft.cs" Link="ScheduleDraft.cs" />
     <Compile Include="../../windows/TrayQuotaReading.cs" Link="TrayQuotaReading.cs" />
     <Compile Include="../../windows/SessionQuotaDelta.cs" Link="SessionQuotaDelta.cs" />
+    <Compile Include="../../windows/ModelSpeedCapabilities.cs" Link="ModelSpeedCapabilities.cs" />
   </ItemGroup>
 </Project>

@@ -18,7 +18,8 @@ internal static class Planner
         var shortQuota = telemetry?.ShortQuota;
         if (shortQuota?.ResetsAt <= now) shortQuota = null;
         var activity = telemetry?.Activity;
-        if (activity is not null && now - activity.ObservedAt > TimeSpan.FromHours(1)) activity = null;
+        if (activity is not null && (activity.ObservedAt > now || now - activity.ObservedAt > TimeSpan.FromHours(1)))
+            activity = null;
         var models = telemetry?.Models ?? [];
 
         DateTimeOffset? deadline = null;
@@ -37,11 +38,35 @@ internal static class Planner
 
         var guidance = pace is null || quota is null ? null : GuideSession(pace, quota, now);
         var (status, recommendation, detail, warning) = Recommend(quota, pace, deadline, activity, models, now);
+        bool hasSpeedRecommendation = false;
+        if (quota is { UsedPercent: < 100 } && HasFreshQuota(quota, now)
+            && activity is { Turns: > 0 } && activity.ObservedAt <= now)
+        {
+            if (warning is not null)
+            {
+                hasSpeedRecommendation = NextModel(activity, models)?.SupportsFastMode == true;
+            }
+            else if ((status is "On pace" or "Pace is sustainable" or "Learning your pace")
+                     && models.FirstOrDefault(model => model.Id == activity.Model) is { SupportsFastMode: true } current)
+            {
+                bool useFast = EstimateLoad(activity) != TaskLoad.Demanding
+                    && pace is { ProjectedPercent: >= 0 and <= 80, SessionStatus: SessionPaceStatus.OnTrack,
+                                 SessionBudget: > 0 }
+                    && pace.SessionRoomToTarget is double room && pace.SessionBudget is double budget
+                    && room >= budget * 0.25;
+                string speed = useFast ? "Fast" : "Standard";
+                string effort = activity.Effort ?? current.DefaultEffort ?? "";
+                string setting = effort.Length == 0 ? current.Name : $"{current.Name} · {EffortName(effort, current.Id)}";
+                recommendation = $"Use {setting} · {speed}";
+                hasSpeedRecommendation = true;
+            }
+        }
         return new DashboardData(
             quota, shortQuota, pace, guidance, status, recommendation, detail, ActivityCaption(activity, models),
             telemetry?.Source ?? "Connecting to Codex", telemetry?.Error, warning)
         {
-            SessionDelta = SessionQuotaDelta.Calculate(quota, pace, history, now)
+            SessionDelta = SessionQuotaDelta.Calculate(quota, pace, history, now),
+            HasSpeedRecommendation = hasSpeedRecommendation
         };
     }
 
@@ -350,9 +375,10 @@ internal static class Planner
                 "The latest account reading shows the weekly allowance at 100%.", null);
         }
 
+        bool recommendStandard = HasFreshQuota(quota, now) && activity is { Turns: > 0 };
         if (pace?.ProjectedPercent is >= 100 && pace.SafeRate is double weeklyRate)
         {
-            string recommendation = NextSettings(activity, models);
+            string recommendation = NextSettings(activity, models, recommendStandard);
             string when = deadline.HasValue ? "your manual reset target" : "the scheduled reset";
             string detail = $"At this pace you could reach the weekly limit before {when}. " +
                 $"Aim for {RateAmount(weeklyRate)}% of weekly quota per work hour or less.";
@@ -362,7 +388,7 @@ internal static class Planner
         if (pace?.CurrentSession is { } session && pace.SessionRoomToTarget is double room &&
             pace.SessionProjectedRoomToTarget is < -0.75 && pace.RecentRate is > 0)
         {
-            string recommendation = NextSettings(activity, models);
+            string recommendation = NextSettings(activity, models, recommendStandard);
             double sessionRate = Math.Max(0, room) / (session.End - now).TotalHours;
             string detail = room > 0
                 ? $"To stay within the cumulative shift-end target, aim for {RateAmount(sessionRate)}% of weekly quota per hour."
@@ -439,20 +465,10 @@ internal static class Planner
         return TaskLoad.Standard;
     }
 
-    private static string NextSettings(Activity? activity, IReadOnlyList<ModelOption> models)
+    private static string NextSettings(Activity? activity, IReadOnlyList<ModelOption> models, bool recommendStandard)
     {
         var load = EstimateLoad(activity);
-        var current = models.FirstOrDefault(model => model.Id == activity?.Model);
-        var defaultModel = models.FirstOrDefault(model => model.IsDefault) ?? current;
-        var everyday = models.FirstOrDefault(model => model.Id == "gpt-6.1-sol");
-        var selected = load switch
-        {
-            TaskLoad.Routine => models.FirstOrDefault(model => model.Id.EndsWith("-luna", StringComparison.Ordinal))
-                ?? current ?? defaultModel,
-            TaskLoad.Demanding => current ?? defaultModel,
-            _ when activity?.Model?.EndsWith("-astra", StringComparison.Ordinal) == true => everyday ?? current ?? defaultModel,
-            _ => current ?? everyday ?? defaultModel,
-        };
+        var selected = NextModel(activity, models);
         if (selected is null)
         {
             return activity?.Model is string id
@@ -476,11 +492,28 @@ internal static class Planner
         });
         var chosen = preferred ?? (active is not null && supported.Contains(active) ? active : null)
             ?? supported.FirstOrDefault() ?? selected.DefaultEffort;
-        if (chosen is null) return $"Use {selected.Name} with a lower available effort";
-        string setting = $"{selected.Name} · {EffortName(chosen, selected.Id)}";
+        string speed = selected.SupportsFastMode == true && recommendStandard ? " · Standard" : "";
+        if (chosen is null) return $"Use {selected.Name}{speed} with a lower available effort";
+        string setting = $"{selected.Name} · {EffortName(chosen, selected.Id)}{speed}";
         return selected.Id == activity?.Model && chosen == activity?.Effort
             ? $"Keep {setting} and run fewer turns in parallel"
             : $"Use {setting}";
+    }
+
+    private static ModelOption? NextModel(Activity? activity, IReadOnlyList<ModelOption> models)
+    {
+        var load = EstimateLoad(activity);
+        var current = models.FirstOrDefault(model => model.Id == activity?.Model);
+        var defaultModel = models.FirstOrDefault(model => model.IsDefault) ?? current;
+        var everyday = models.FirstOrDefault(model => model.Id == "gpt-6.1-sol");
+        return load switch
+        {
+            TaskLoad.Routine => models.FirstOrDefault(model => model.Id.EndsWith("-luna", StringComparison.Ordinal))
+                ?? current ?? defaultModel,
+            TaskLoad.Demanding => current ?? defaultModel,
+            _ when activity?.Model?.EndsWith("-astra", StringComparison.Ordinal) == true => everyday ?? current ?? defaultModel,
+            _ => current ?? everyday ?? defaultModel,
+        };
     }
 
     private static string ActivityCaption(Activity? activity, IReadOnlyList<ModelOption> models)

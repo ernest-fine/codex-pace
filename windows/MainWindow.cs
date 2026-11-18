@@ -216,10 +216,10 @@ internal sealed class MainWindow : Window
         Set(shortQuota, state.ShortQuota is { } shortWindow
             ? $"{Duration(TimeSpan.FromMinutes(shortWindow.WindowMinutes))} limit · {Percent(shortWindow.UsedPercent)} used · Resets {Stamp(shortWindow.ResetsAt)}"
             : null);
-        bool showAdvice = state.Quota?.UsedPercent >= 100 || state.Warning is { } warning &&
+        bool showAdvice = state.HasSpeedRecommendation || state.Quota?.UsedPercent >= 100 || state.Warning is { } warning &&
             (!showWeekly || warning.Key.StartsWith("weekly.", StringComparison.Ordinal));
         suggestion.Visibility = showAdvice ? Visibility.Visible : Visibility.Collapsed;
-        Set(suggestionLabel, state.Warning is null ? state.Status : "Next turn");
+        Set(suggestionLabel, state.Warning is null && !state.HasSpeedRecommendation ? state.Status : "Next turn");
         Set(suggestionText, state.Recommendation);
         AutomationProperties.SetHelpText(suggestionText, state.RecommendationDetail);
         ToolTipService.SetToolTip(suggestionText, string.IsNullOrWhiteSpace(state.RecommendationDetail) ? null : state.RecommendationDetail);

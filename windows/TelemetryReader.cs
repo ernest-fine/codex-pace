@@ -81,9 +81,8 @@ internal sealed class TelemetryReader
             .OrderBy(sample => sample.ObservedAt)
             .ToArray();
 
-        IReadOnlyList<ModelOption> models = live is { Models.Count: > 0 }
-            ? live.Models
-            : await ReadCachedModelsAsync(cancellationToken).ConfigureAwait(false);
+        var cachedModels = await ReadCachedModelsAsync(cancellationToken).ConfigureAwait(false);
+        IReadOnlyList<ModelOption> models = ModelSpeedCapabilities.Merge(live?.Models ?? [], cachedModels);
         cancellationToken.ThrowIfCancellationRequested();
         string source = weekly is null ? "Waiting for Codex usage"
             : live?.Quotas.Contains(weekly) == true ? "Codex account" : "Local Codex history";
@@ -324,7 +323,7 @@ internal sealed class TelemetryReader
                     string[] efforts = Items(entry, "supported_reasoning_levels")
                         .Select(effort => Text(effort, "effort")).OfType<string>().ToArray();
                     models.Add(new ModelOption(id, Text(entry, "display_name") ?? id, efforts,
-                        Text(entry, "default_reasoning_level"), models.Count == 0));
+                        Text(entry, "default_reasoning_level"), models.Count == 0, ModelSpeedCapabilities.Read(entry)));
                 }
             }
             catalog = new CachedCatalog(stamp, models);
@@ -523,7 +522,7 @@ internal sealed class TelemetryReader
                                 .Select(effort => Text(effort, "reasoningEffort")).OfType<string>().ToArray();
                             models.Add(new ModelOption(idText, Text(model, "displayName") ?? idText,
                                 efforts, Text(model, "defaultReasoningEffort"),
-                                Property(model, "isDefault").ValueKind == JsonValueKind.True));
+                                Property(model, "isDefault").ValueKind == JsonValueKind.True, ModelSpeedCapabilities.Read(model)));
                         }
                     }
                 }

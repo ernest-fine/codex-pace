@@ -225,10 +225,10 @@ final class TrackerStore: ObservableObject {
         let models = [
             ModelOption(id: "gpt-6.1-sol", name: "GPT-6.1 Sol",
                         efforts: ["low", "medium", "high", "xhigh", "max", "ultra"],
-                        defaultEffort: "medium", isDefault: true),
+                        defaultEffort: "medium", isDefault: true, supportsFastMode: true),
             ModelOption(id: "gpt-6-luna", name: "GPT-6 Luna",
                         efforts: ["low", "medium", "high", "max"],
-                        defaultEffort: "high", isDefault: false),
+                        defaultEffort: "high", isDefault: false, supportsFastMode: true),
         ]
         let activity = Activity(observedAt: now, model: "gpt-6.1-sol", effort: "high",
                                 turns: healthy ? 2 : 4, tokens: healthy ? 55_000 : 180_000)

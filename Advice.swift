@@ -30,23 +30,24 @@ private func estimatedLoad(for activity: Activity?) -> TaskLoad {
     return .standard
 }
 
-private func nextSettings(load: TaskLoad, activity: Activity?, models: [ModelOption]) -> String {
+private func nextModel(load: TaskLoad, activity: Activity?, models: [ModelOption]) -> ModelOption? {
     let current = models.first { $0.id == activity?.model }
     let defaultModel = models.first(where: { $0.isDefault }) ?? current
-    let selected: ModelOption?
     switch load {
     case .routine:
-        selected = models.first { $0.id.hasSuffix("-luna") } ?? current ?? defaultModel
+        return models.first { $0.id.hasSuffix("-luna") } ?? current ?? defaultModel
     case .standard:
         let everyday = models.first { $0.id == "gpt-6.1-sol" }
-        selected = activity?.model?.hasSuffix("-astra") == true
+        return activity?.model?.hasSuffix("-astra") == true
             ? everyday ?? current ?? defaultModel
             : current ?? everyday ?? defaultModel
     case .demanding:
-        selected = current ?? defaultModel
+        return current ?? defaultModel
     }
+}
 
-    guard let selected else {
+private func nextSettings(load: TaskLoad, activity: Activity?, models: [ModelOption]) -> String {
+    guard let selected = nextModel(load: load, activity: activity, models: models) else {
         if let id = activity?.model {
             return "Keep \(modelName(id, in: models)) and choose a lower available effort"
         }
@@ -78,6 +79,25 @@ private func nextSettings(load: TaskLoad, activity: Activity?, models: [ModelOpt
     return "Use \(setting)"
 }
 
+func recommendedSpeed(
+    model: ModelOption?, activity: Activity?, quota: QuotaSample?, pace: Pace?, now: Date, hasBudgetWarning: Bool
+) -> String? {
+    guard model?.supportsFastMode == true, let activity, activity.turns > 0,
+          (0...3600).contains(now.timeIntervalSince(activity.observedAt)),
+          let quota, quota.resetsAt > now, (0..<100).contains(quota.usedPercent),
+          (0...45 * 60).contains(now.timeIntervalSince(quota.observedAt)),
+          let pace, pace.remainingWorkHours > 0
+    else { return nil }
+
+    guard !hasBudgetWarning, estimatedLoad(for: activity) != .demanding,
+          let session = pace.currentSession, session.start <= now, now < session.end,
+          let projected = pace.projectedPercent, projected.isFinite, projected <= 80,
+          pace.sessionStatus == .onTrack, let room = pace.sessionRoomToTarget,
+          room >= session.targetPercent * 0.25
+    else { return "Standard" }
+    return "Fast"
+}
+
 func dashboardData(
     telemetry: Telemetry?,
     history: [QuotaSample],
@@ -91,7 +111,7 @@ func dashboardData(
     let models = telemetry?.models ?? []
     let activity = telemetry?.activity
     let recent = activity.flatMap { item in
-        now.timeIntervalSince(item.observedAt) <= 3600 ? item : nil
+        (0...3600).contains(now.timeIntervalSince(item.observedAt)) ? item : nil
     }
     let load = estimatedLoad(for: recent)
     let activityText: String
@@ -206,13 +226,31 @@ func dashboardData(
         )
     }
 
+    let suggestedModel = warning == nil
+        ? models.first { $0.id == recent?.model }
+        : nextModel(load: load, activity: recent, models: models)
+    let speed = recommendedSpeed(
+        model: suggestedModel, activity: recent, quota: quota, pace: pace, now: now,
+        hasBudgetWarning: warning != nil || tone == .critical
+    )
+    let suggestedRecommendation: String
+    if warning == nil, speed != nil, let suggestedModel {
+        let effort = (recent?.effort ?? suggestedModel.defaultEffort).map {
+            " · \(effortName($0, model: suggestedModel.id))"
+        } ?? ""
+        suggestedRecommendation = "Use \(suggestedModel.name)\(effort)"
+    } else {
+        suggestedRecommendation = recommendation
+    }
+
     return DashboardData(
         quota: quota, pace: pace,
         guidance: pace.flatMap { sessionGuidance(for: $0, quota: quota, now: now) },
         shortQuota: shortQuota, status: status,
-        recommendation: recommendation, recommendationDetail: detail, recommendationTone: tone,
+        recommendation: suggestedRecommendation, recommendationDetail: detail, recommendationTone: tone,
         recentActivity: activityText,
         source: telemetry?.source ?? "Connecting to Codex",
-        isRefreshing: isRefreshing, isDemo: isDemo, error: telemetry?.error, budgetWarning: warning
+        isRefreshing: isRefreshing, isDemo: isDemo, error: telemetry?.error, budgetWarning: warning,
+        fastModeRecommendation: speed
     )
 }

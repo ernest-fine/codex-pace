@@ -14,6 +14,21 @@ struct ModelOption: Sendable {
     let efforts: [String]
     let defaultEffort: String?
     let isDefault: Bool
+    var supportsFastMode: Bool? = nil
+
+    static func fastModeSupport(serviceTierIDs: [String]?, additionalSpeedTiers: [String]?) -> Bool? {
+        guard serviceTierIDs != nil || additionalSpeedTiers != nil else { return nil }
+        return serviceTierIDs?.contains { ["priority", "fast"].contains($0.lowercased()) } == true
+            || additionalSpeedTiers?.contains { $0.lowercased() == "fast" } == true
+    }
+
+    static func enrichFastSupport(_ models: [Self], from catalog: [Self]) -> [Self] {
+        models.map { model in
+            var result = model
+            result.supportsFastMode = model.supportsFastMode ?? catalog.first { $0.id == model.id }?.supportsFastMode
+            return result
+        }
+    }
 }
 
 struct Activity: Sendable {
@@ -122,6 +137,12 @@ private struct CachedCatalog: Decodable {
         let visibility: String
         let defaultReasoningLevel: String?
         let supportedReasoningLevels: [Effort]?
+        let serviceTiers: [ServiceTier]?
+        let additionalSpeedTiers: [String]?
+    }
+
+    struct ServiceTier: Decodable {
+        let id: String?
     }
 
     struct Effort: Decodable {
@@ -186,7 +207,7 @@ private final class TelemetryReader: @unchecked Sendable {
         return Telemetry(
             quota: quota, shortQuota: shortQuota, history: history,
             activity: recentActivity(in: rollouts, now: now),
-            models: models.isEmpty ? modelsFromDisk() : models,
+            models: models.isEmpty ? modelsFromDisk() : ModelOption.enrichFastSupport(models, from: modelsFromDisk()),
             source: source, error: error
         )
     }
@@ -352,7 +373,11 @@ private final class TelemetryReader: @unchecked Sendable {
             ModelOption(
                 id: model.slug, name: model.displayName,
                 efforts: model.supportedReasoningLevels?.map(\.effort) ?? [],
-                defaultEffort: model.defaultReasoningLevel, isDefault: index == 0
+                defaultEffort: model.defaultReasoningLevel, isDefault: index == 0,
+                supportsFastMode: ModelOption.fastModeSupport(
+                    serviceTierIDs: model.serviceTiers?.compactMap(\.id),
+                    additionalSpeedTiers: model.additionalSpeedTiers
+                )
             )
         }
         catalog = (stamp, models)
@@ -521,7 +546,11 @@ private final class AppServerRead: @unchecked Sendable {
             return ModelOption(
                 id: id, name: model["displayName"] as? String ?? id, efforts: efforts,
                 defaultEffort: model["defaultReasoningEffort"] as? String,
-                isDefault: model["isDefault"] as? Bool ?? false
+                isDefault: model["isDefault"] as? Bool ?? false,
+                supportsFastMode: ModelOption.fastModeSupport(
+                    serviceTierIDs: (model["serviceTiers"] as? [[String: Any]])?.compactMap { $0["id"] as? String },
+                    additionalSpeedTiers: model["additionalSpeedTiers"] as? [String]
+                )
             )
         }
     }

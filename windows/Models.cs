@@ -4,7 +4,8 @@ using System.Text.Json.Serialization;
 namespace CodexPace;
 
 internal sealed record QuotaSample(DateTimeOffset ObservedAt, DateTimeOffset ResetsAt, int WindowMinutes, double UsedPercent);
-internal sealed record ModelOption(string Id, string Name, IReadOnlyList<string> Efforts, string? DefaultEffort, bool IsDefault);
+internal sealed record ModelOption(string Id, string Name, IReadOnlyList<string> Efforts, string? DefaultEffort,
+    bool IsDefault, bool? SupportsFastMode = null);
 internal sealed record Activity(DateTimeOffset ObservedAt, string? Model, string? Effort, int Turns, long Tokens);
 internal sealed record Telemetry(
     QuotaSample? Quota, QuotaSample? ShortQuota, IReadOnlyList<QuotaSample> History,
@@ -123,6 +124,7 @@ internal sealed record DashboardData(
     BudgetWarning? Warning)
 {
     public SessionQuotaDelta? SessionDelta { get; init; }
+    public bool HasSpeedRecommendation { get; init; }
 }
 
 internal static class QuotaDisplay
