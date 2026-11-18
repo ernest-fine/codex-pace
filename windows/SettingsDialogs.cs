@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 
 namespace CodexPace;
 
@@ -136,13 +137,50 @@ internal static class SettingsDialogs
 
     public static async Task<DayOfWeek[]?> EditWorkdaysAsync(XamlRoot root, IReadOnlyList<DayOfWeek> workdays)
     {
-        var body = new StackPanel { Spacing = 2 };
-        var options = Days.Select(day => new CheckBox
+        var grid = new Grid { ColumnSpacing = 8, RowSpacing = 8 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        grid.ColumnDefinitions.Add(new ColumnDefinition());
+        for (int index = 0; index < (Days.Length + 1) / 2; index++)
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+
+        var options = Days.Select((day, index) =>
         {
-            Content = CultureInfo.CurrentCulture.DateTimeFormat.GetDayName(day),
-            IsChecked = workdays.Contains(day)
+            var name = CultureInfo.CurrentCulture.DateTimeFormat.GetDayName(day);
+            var label = new TextBlock { Text = name, FontSize = 15, TextWrapping = TextWrapping.Wrap };
+            var check = new TextBlock { Text = "✓", FontSize = 16, HorizontalAlignment = HorizontalAlignment.Right };
+            AutomationProperties.SetAccessibilityView(check, AccessibilityView.Raw);
+            var content = new Grid { ColumnSpacing = 6 };
+            content.ColumnDefinitions.Add(new ColumnDefinition());
+            content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            Place(content, label, 0, 0);
+            Place(content, check, 0, 1);
+
+            var tile = new ToggleButton
+            {
+                Content = content,
+                IsChecked = workdays.Contains(day),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                MinHeight = 40,
+                Padding = new Thickness(9, 6, 9, 6),
+            };
+            AutomationProperties.SetName(tile, name);
+            tile.Checked += (_, _) => RenderSelection();
+            tile.Unchecked += (_, _) => RenderSelection();
+            RenderSelection();
+            Place(grid, tile, index / 2, index % 2);
+            return tile;
+
+            void RenderSelection()
+            {
+                check.Visibility = tile.IsChecked == true ? Visibility.Visible : Visibility.Collapsed;
+                label.FontWeight = tile.IsChecked == true ? Microsoft.UI.Text.FontWeights.SemiBold : Microsoft.UI.Text.FontWeights.Normal;
+            }
         }).ToArray();
-        foreach (var option in options) body.Children.Add(option);
+
+        var body = new StackPanel { Spacing = 12 };
+        body.Children.Add(new TextBlock { Text = "Choose which days count toward your quota plan.", FontSize = 15, TextWrapping = TextWrapping.Wrap });
+        body.Children.Add(grid);
 
         var dialog = Create(root, "Work days", "Save work days", body);
         if (await dialog.ShowAsync() != ContentDialogResult.Primary) return null;

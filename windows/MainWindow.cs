@@ -24,14 +24,20 @@ internal sealed class MainWindow : Window
     private readonly SolidColorBrush muted = new();
     private readonly SolidColorBrush line = new();
     private readonly SolidColorBrush selection = new();
+    private readonly SolidColorBrush inset = new();
     private readonly SolidColorBrush onPace = new();
     private readonly SolidColorBrush caution = new();
     private readonly SolidColorBrush risk = new();
+    private readonly SolidColorBrush healthyBadge = new();
+    private readonly SolidColorBrush cautionBadge = new();
+    private readonly SolidColorBrush riskBadge = new();
     private readonly ThemeSettings appearance;
     private readonly UISettings systemColors = new();
     private readonly Button refresh = new() { Content = "Refresh" };
     private readonly ToggleButton used = new() { Content = "Used" };
     private readonly ToggleButton left = new() { Content = "Left" };
+    private readonly ToggleButton planUsed = new() { Content = "Used" };
+    private readonly ToggleButton planLeft = new() { Content = "Left" };
     private readonly ToggleButton sessionMode = new() { Content = "Session" };
     private readonly ToggleButton weeklyMode = new() { Content = "Weekly" };
     private readonly Grid planGrid = new() { ColumnSpacing = 1, RowSpacing = 1 };
@@ -43,7 +49,6 @@ internal sealed class MainWindow : Window
     private readonly TextBlock error;
     private readonly TextBlock activity;
     private readonly TextBlock source;
-    private readonly TextBlock planCaption;
     private readonly TextBlock planEmpty;
     private readonly TextBlock suggestionLabel;
     private readonly TextBlock suggestionText;
@@ -55,6 +60,7 @@ internal sealed class MainWindow : Window
     private DateTimeOffset renderedNow = DateTimeOffset.UtcNow;
     private long renderedAt = Stopwatch.GetTimestamp();
     private bool showWeekly;
+    private bool weeklyDetailsExpanded;
     private bool dialogOpen;
     private bool refreshing;
 
@@ -70,17 +76,18 @@ internal sealed class MainWindow : Window
         appearance = ThemeSettings.CreateForWindowId(AppWindow.Id);
         root.Background = surface;
 
-        timestamp = Text(secondary: true);
-        heroTitle = Text(size: 20, strong: true);
-        heroSubtitle = Text(secondary: true);
+        timestamp = Text(size: 15, secondary: true);
+        heroTitle = Text(size: 24, strong: true);
+        heroSubtitle = Text(size: 16, secondary: true);
         error = Text(secondary: true);
-        activity = Text(secondary: true);
-        source = Text(secondary: true);
-        planCaption = Text(secondary: true);
+        activity = Text(size: 15, secondary: true);
+        source = Text(size: 15, secondary: true);
+        var footer = Pair(Stack(3, Text("Recent Codex activity", strong: true), activity),
+            Stack(3, Text("Quota source", strong: true), source), 450, firstWeight: 1.65);
         planEmpty = Text(secondary: true);
-        suggestionLabel = Text(size: 12, secondary: true);
-        suggestionText = Text(strong: true);
-        shortQuota = Text(secondary: true);
+        suggestionLabel = Text(size: 16, secondary: true);
+        suggestionText = Text(size: 18, strong: true);
+        shortQuota = Text(size: 16, secondary: true);
         planScroller = new ScrollViewer
         {
             Content = planGrid,
@@ -91,39 +98,50 @@ internal sealed class MainWindow : Window
         };
         planScroller.SizeChanged += (_, _) => SizePlanColumns();
         AutomationProperties.SetName(planScroller, "Work sessions table");
-        suggestion = Stack(7, Rule(), Horizontal(8, suggestionLabel, suggestionText));
+        var nextTurn = new Grid { ColumnSpacing = 12 };
+        nextTurn.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        nextTurn.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        nextTurn.Children.Add(suggestionLabel);
+        Grid.SetColumn(suggestionText, 1);
+        nextTurn.Children.Add(suggestionText);
+        suggestion = Stack(10, Rule(), nextTurn);
 
         used.Click += (_, _) => SetQuotaMode(true);
         left.Click += (_, _) => SetQuotaMode(false);
+        planUsed.Click += (_, _) => SetQuotaMode(true);
+        planLeft.Click += (_, _) => SetQuotaMode(false);
         sessionMode.Click += (_, _) => SetHeroMode(false);
         weeklyMode.Click += (_, _) => SetHeroMode(true);
         refresh.Click += (_, _) => RefreshRequested?.Invoke();
 
         var settings = new Button { Content = "Schedule" };
+        var workdays = new Button { Content = "Work days" };
+        workdays.Click += async (_, _) => await RunDialogAsync(EditWorkdaysAsync);
         var menu = new MenuFlyout();
         AddMenuItem(menu, "Edit sessions…", EditSessionsAsync);
-        AddMenuItem(menu, "Work days…", EditWorkdaysAsync);
         menu.Items.Add(new MenuFlyoutSeparator());
         var test = new MenuFlyoutItem { Text = "Send test notification" };
         test.Click += (_, _) => TestNotificationRequested?.Invoke();
         menu.Items.Add(test);
         settings.Flyout = menu;
 
-        var title = Text("Codex Pace", 29, strong: true);
+        var title = Text("Codex Pace", 27, strong: true);
         AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.Level1);
         AutomationProperties.SetHeadingLevel(heroTitle, AutomationHeadingLevel.Level2);
         ToolTipService.SetToolTip(refresh, "Check for the latest Codex usage");
 
-        var controls = Horizontal(8, ModeSelector("Quota view", used, left), settings, refresh);
-        var header = Pair(Stack(3, title, timestamp), controls, 568);
-        var heroHeader = Pair(Stack(3, heroTitle, heroSubtitle), ModeSelector("Focus", sessionMode, weeklyMode), 392);
+        var controls = Horizontal(8, settings, workdays, refresh);
+        var header = Pair(Stack(3, title, timestamp), controls, 490);
+        var heroControls = Horizontal(8, ModeSelector("Focus", sessionMode, weeklyMode), ModeSelector("Quota view", used, left));
+        var heroHeader = Pair(Stack(3, heroTitle, heroSubtitle), heroControls, 500);
         var mainCard = Card(Stack(15, heroHeader, heroContent, shortQuota, suggestion), hero, 22);
-        var planTitle = Text("Work sessions", 16, strong: true);
+        var planTitle = Text("Work sessions", 19, strong: true);
         AutomationProperties.SetHeadingLevel(planTitle, AutomationHeadingLevel.Level2);
-        var planCard = Card(Stack(10, Pair(planTitle, planCaption, 330), planEmpty, planScroller), panel, 17);
+        var planCard = Card(Stack(12, Pair(planTitle, ModeSelector("Work sessions quota view", planUsed, planLeft), 320),
+            planEmpty, planScroller), panel, 17);
         var content = new Border
         {
-            Child = Stack(14, header, mainCard, error, planCard, activity, source),
+            Child = Stack(14, header, mainCard, error, planCard, Card(footer, panel, 16)),
             Padding = new Thickness(20),
             MaxWidth = 1064,
         };
@@ -146,11 +164,12 @@ internal sealed class MainWindow : Window
         renderedAt = Stopwatch.GetTimestamp();
         refresh.Content = refreshing ? "Refreshing…" : "Refresh";
         refresh.IsEnabled = !refreshing;
-        used.IsChecked = preferences.ShowUsed;
-        left.IsChecked = !preferences.ShowUsed;
-        Set(timestamp, data.Quota is { } quota ? $"Updated {Stamp(quota.ObservedAt)}" : "Weekly usage tracker");
+        SyncQuotaMode(preferences.ShowUsed);
+        Set(timestamp, data.Quota is { } quota
+            ? $"Updated {(WorkClock.Day(quota.ObservedAt) == WorkClock.Day(now) ? "today" : Day(WorkClock.Day(quota.ObservedAt)))} at {Time(quota.ObservedAt)}"
+            : "Weekly usage tracker");
         Set(error, data.Error);
-        Set(activity, string.IsNullOrWhiteSpace(data.RecentActivity) ? null : $"Recent Codex activity · {data.RecentActivity}");
+        Set(activity, data.RecentActivity);
         Set(source, data.Source);
         RenderHero();
         RenderPlan(data, now);
@@ -158,10 +177,15 @@ internal sealed class MainWindow : Window
 
     private void SetQuotaMode(bool showUsed)
     {
-        used.IsChecked = showUsed;
-        left.IsChecked = !showUsed;
+        SyncQuotaMode(showUsed);
         if (preferences.ShowUsed != showUsed)
             PreferencesChanged?.Invoke(preferences with { ShowUsed = showUsed });
+    }
+
+    private void SyncQuotaMode(bool showUsed)
+    {
+        used.IsChecked = planUsed.IsChecked = showUsed;
+        left.IsChecked = planLeft.IsChecked = !showUsed;
     }
 
     private void SetHeroMode(bool weekly)
@@ -185,7 +209,8 @@ internal sealed class MainWindow : Window
         Set(shortQuota, state.ShortQuota is { } shortWindow
             ? $"{Duration(TimeSpan.FromMinutes(shortWindow.WindowMinutes))} limit · {Percent(shortWindow.UsedPercent)} used · Resets {Stamp(shortWindow.ResetsAt)}"
             : null);
-        bool showAdvice = state.Warning is not null || state.Quota?.UsedPercent >= 100;
+        bool showAdvice = state.Quota?.UsedPercent >= 100 || state.Warning is { } warning &&
+            (!showWeekly || warning.Key.StartsWith("weekly.", StringComparison.Ordinal));
         suggestion.Visibility = showAdvice ? Visibility.Visible : Visibility.Collapsed;
         Set(suggestionLabel, state.Warning is null ? state.Status : "Next turn");
         Set(suggestionText, state.Recommendation);
@@ -215,15 +240,15 @@ internal sealed class MainWindow : Window
         }
 
         Set(heroTitle, session.Template.Name);
-        Set(heroSubtitle, Range(session));
-        var readout = Stack(7);
+        Set(heroSubtitle, $"Ends at {Time(session.End)} · {Duration(session.End - now)} left");
+        var readout = Stack(12);
         string kind = preferences.ShowUsed ? "used" : "left";
         if (QuotaDisplay.SessionUsage(pace) is { } usage)
         {
             double? target = pace.SessionTarget / pace.SessionBudget * 100;
             string prefix = pace.SessionStartInferred ? "Estimated " : "";
-            readout.Children.Add(Readings($"{prefix}Session budget {kind}", Oriented(usage.Fraction * 100), target));
-            readout.Children.Add(Progress($"Session budget {kind}", usage.Fraction * 100, target));
+            readout.Children.Add(Readings($"{prefix}Session quota {kind}", Oriented(usage.Fraction * 100), target));
+            readout.Children.Add(Progress($"Session quota {kind}", usage.Fraction * 100, target));
         }
         else
         {
@@ -231,54 +256,65 @@ internal sealed class MainWindow : Window
         }
         if (pace.SessionRoomToTarget is { } room)
         {
-            var label = room < 0 ? $"{Percent(-room)} of weekly quota over the session target"
-                : $"{Percent(room)} of weekly quota available this session";
-            if (state.Quota is { } quota && IsStale(quota, now)) label += $" · Last read {Stamp(quota.ObservedAt)}";
-            readout.Children.Add(Text(label, secondary: true));
+            var detail = room < 0 ? "over the session target" : "available this session";
+            if (state.Quota is { } quota && IsStale(quota, now)) detail += $" · Last read {Stamp(quota.ObservedAt)}";
+            readout.Children.Add(QuotaNote($"{Percent(Math.Abs(room))} of weekly quota", detail));
         }
 
         var action = state.Guidance?.Action ?? SessionAction.AwaitingReadings;
-        var details = Stack(7, Pair(Metric("Session guidance", Planner.ActionLabel(action)),
-            Metric("Time left", Duration(session.End - now)), 208));
+        var details = Stack(7);
         string? guidance = action switch
         {
-            SessionAction.CheckUsage => "Refresh to check your current room to target.",
+            SessionAction.CheckUsage => "Refresh to see how much quota is available.",
             SessionAction.AwaitingReadings => "Another quota reading will help estimate your pace.",
             SessionAction.Pause when state.Quota?.UsedPercent >= 100 => "Your weekly quota is used up.",
-            SessionAction.Pause => "The cumulative session target has been reached.",
+            SessionAction.Pause => "You’ve reached your session target.",
             _ => null,
         };
-        if (guidance is not null) details.Children.Add(Text(guidance, secondary: true));
+        if (guidance is not null) details.Children.Add(Text(guidance, 16));
         if (state.Guidance?.SafeSessionPercentPerHour is { } rate)
-            details.Children.Add(Text($"Aim for about {Percent(rate)} of the session allowance per hour or less.", secondary: true));
+            details.Children.Add(Text($"Aim for {Percent(rate)} of your session quota per hour or less.", 16));
         if (action != SessionAction.Pause && state.Guidance?.WeeklyRisk == true)
-            details.Children.Add(Text("At this pace, your weekly quota could run out before reset.", secondary: true));
+            details.Children.Add(Text("At this pace, your weekly quota could run out before reset.", 16));
         if (pace.SessionBudget is null && action != SessionAction.CheckUsage)
-            details.Children.Add(Text("Session percentages need a reading around the start of the shift.", secondary: true));
-        heroContent.Children.Add(Pair(readout, details, 552, firstWeight: 1.55));
+            details.Children.Add(Text("Session percentages need a reading near the start of the session.", 16));
+        heroContent.Children.Add(Pair(readout, GuidancePanel(Planner.ActionLabel(action), details,
+            action switch
+            {
+                SessionAction.SlowDown => cautionBadge,
+                SessionAction.Pause => riskBadge,
+                SessionAction.KeepPace or SessionAction.RoomToSpeedUp => healthyBadge,
+                _ => selection,
+            }), 600, firstWeight: 1.32));
     }
 
     private void RenderWeekly(DashboardData state)
     {
         Set(heroTitle, "Weekly quota");
-        Set(heroSubtitle, null);
         if (state.Quota is not { } quota)
         {
+            Set(heroSubtitle, null);
             heroContent.Children.Add(Text(refreshing ? "Checking quota…" : "Weekly quota unavailable", 22, strong: true));
             return;
         }
 
         var pace = state.Pace;
+        var existing = preferences.ResetTarget is { } manual && manual.WindowResetsAt == quota.ResetsAt ? manual : null;
+        Set(heroSubtitle, existing is not null && pace?.PlanEndsAt == existing.TargetAt
+            ? $"Reset target {Stamp(existing.TargetAt)}"
+            : $"Resets {Day(WorkClock.Day(quota.ResetsAt))} at {Time(quota.ResetsAt)}");
         double? target = pace is { Sessions.Count: > 0 } ? pace.TargetPercent : null;
         string kind = preferences.ShowUsed ? "used" : "left";
-        var readout = Stack(7,
-            Readings($"Quota {kind}", Oriented(quota.UsedPercent), target),
-            Progress($"Weekly quota {kind}", quota.UsedPercent, target));
-        string caption = preferences.ShowUsed ? $"{Percent(100 - quota.UsedPercent)} left" : $"{Percent(quota.UsedPercent)} used";
-        if (pace?.ExhaustionDate is { } exhaustion) caption += $" · Projected to run out {Stamp(exhaustion)}";
-        readout.Children.Add(Text(caption, secondary: true));
+        var (badge, message, badgeColor) = WeeklyAdvice(quota, pace);
+        var readout = Stack(12,
+            Readings($"Weekly quota {kind}", Oriented(quota.UsedPercent), target),
+            Progress($"Weekly quota {kind}", quota.UsedPercent, target, badgeColor == healthyBadge ? onPace : null),
+            QuotaNote($"{Percent(preferences.ShowUsed ? 100 - quota.UsedPercent : quota.UsedPercent)} of weekly quota",
+                preferences.ShowUsed ? "remaining" : "used so far"));
+        heroContent.Children.Add(Pair(readout, GuidancePanel(badge, Text(message, 16), badgeColor),
+            600, firstWeight: 1.32));
 
-        var detail = Stack(8);
+        var detail = Stack(10);
         if (pace is not null)
         {
             detail.Children.Add(Pair(Metric("Recent pace", Rate(pace.RecentRate)), Metric("Safe pace", Rate(pace.SafeRate)), 204));
@@ -286,42 +322,97 @@ internal sealed class MainWindow : Window
                 Percent(pace.ProjectedPercent)), Metric("Work time left", $"{pace.RemainingWorkHours:0.#} h"), 204));
             detail.Children.Add(Rule());
         }
-        detail.Children.Add(Metric("Scheduled reset", Stamp(quota.ResetsAt)));
-        var existing = preferences.ResetTarget is { } manual && manual.WindowResetsAt == quota.ResetsAt ? manual : null;
-        if (existing is not null)
-        {
-            var note = existing.TargetAt <= renderedNow ? " · Target passed" : pace?.PlanEndsAt == existing.TargetAt ? " · Pacing uses this target" : "";
-            detail.Children.Add(Text($"Manual reset target · {Stamp(existing.TargetAt)}{note}", secondary: true));
-        }
         var reset = new Button
         {
             Content = existing is null ? "Set reset target…" : "Edit reset target…",
             IsEnabled = NextMinute(CurrentTime()) < quota.ResetsAt,
-            HorizontalAlignment = HorizontalAlignment.Left,
+            HorizontalAlignment = HorizontalAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center,
         };
         reset.Click += async (_, _) => await RunDialogAsync(EditResetTargetAsync);
-        detail.Children.Add(reset);
-        heroContent.Children.Add(Pair(readout, detail, 552, firstWeight: 1.55));
+        detail.Children.Add(Pair(Metric("Scheduled reset", Stamp(quota.ResetsAt)), reset, 310));
+        if (existing is not null)
+        {
+            var note = existing.TargetAt <= renderedNow ? " · Target passed" : pace?.PlanEndsAt == existing.TargetAt ? " · Pacing uses this target" : "";
+            detail.Children.Add(Text($"Manual reset target · {Stamp(existing.TargetAt)}{note}", 16, secondary: true));
+        }
+
+        var forecast = new Expander
+        {
+            Header = Text("Weekly pacing details", 16, strong: true),
+            Content = detail,
+            IsExpanded = weeklyDetailsExpanded,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+        forecast.Expanding += (_, _) => weeklyDetailsExpanded = true;
+        forecast.Collapsed += (_, _) => weeklyDetailsExpanded = false;
+        heroContent.Children.Add(forecast);
+    }
+
+    private (string Label, string Message, Brush Badge) WeeklyAdvice(QuotaSample quota, Pace? pace)
+    {
+        if (quota.ResetsAt <= renderedNow || quota.ObservedAt > renderedNow || IsStale(quota, renderedNow))
+            return ("Check usage", "Refresh to see your current weekly pace.", selection);
+        if (quota.UsedPercent >= 100)
+            return ("Pause", "You’ve reached your weekly quota limit.", riskBadge);
+        if (pace is null || pace.RemainingWorkHours == 0)
+            return ("Off hours", "No work hours are scheduled before your next reset.", selection);
+        if (pace.ProjectedPercent is not { } projection)
+            return ("Checking", "Waiting for more usage readings during work hours.", selection);
+        if (projection >= 100)
+            return ("Slow down", "At this pace, you could reach your weekly limit before reset.", cautionBadge);
+        return ("Keep this pace", "Your recent pace fits your remaining weekly quota.", healthyBadge);
+    }
+
+    private Border GuidancePanel(string title, FrameworkElement detail, Brush badgeColor)
+    {
+        var badge = new Border
+        {
+            Child = Text(title, 16, strong: true),
+            Background = badgeColor,
+            CornerRadius = new CornerRadius(16),
+            Padding = new Thickness(10, 4, 10, 4),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        return new Border
+        {
+            Child = Stack(8, badge, detail),
+            Padding = new Thickness(16),
+            CornerRadius = new CornerRadius(12),
+            Background = inset,
+            VerticalAlignment = VerticalAlignment.Top,
+        };
+    }
+
+    private TextBlock QuotaNote(string amount, string detail)
+    {
+        var note = Text(size: 16, secondary: true);
+        note.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = amount, FontWeight = FontWeights.SemiBold, Foreground = ink });
+        note.Inlines.Add(new Microsoft.UI.Xaml.Documents.Run { Text = " " + detail });
+        return note;
     }
 
     private FrameworkElement Readings(string usageLabel, string usage, double? target)
     {
-        var main = Stack(2, Text(usageLabel, 12, secondary: true), Text(usage, 39, strong: true));
+        var main = Stack(2, Text(usageLabel, 16, secondary: true), Text(usage, 54, strong: true));
         if (target is not { } value || !double.IsFinite(value)) return main;
-        var planned = Stack(2,
-            Text($"Target {(preferences.ShowUsed ? "used" : "left")} by now", 12, secondary: true),
-            Text(Oriented(value), 27, strong: true));
+        var label = Text($"Target {(preferences.ShowUsed ? "used" : "left")} by now", 16, secondary: true);
+        var number = Text(Oriented(value), 36, strong: true);
+        label.TextAlignment = number.TextAlignment = TextAlignment.Right;
+        var planned = Stack(2, label, number);
+        planned.VerticalAlignment = VerticalAlignment.Bottom;
         return Pair(main, planned, 224);
     }
 
-    private FrameworkElement Progress(string label, double usedAmount, double? target)
+    private FrameworkElement Progress(string label, double usedAmount, double? target, Brush? fill = null)
     {
         var progress = new ProgressBar
         {
             Minimum = 0,
             Maximum = 100,
             Value = Math.Clamp(preferences.ShowUsed ? usedAmount : 100 - usedAmount, 0, 100),
-            Foreground = target is not { } planned ? muted : usedAmount <= planned ? onPace : usedAmount <= planned * 1.10 ? caution : risk,
+            Foreground = fill ?? (target is not { } planned ? muted : usedAmount <= planned ? onPace : usedAmount <= planned * 1.10 ? caution : risk),
             VerticalAlignment = VerticalAlignment.Center,
         };
         AutomationProperties.SetName(progress, label);
@@ -341,7 +432,6 @@ internal sealed class MainWindow : Window
         var schedule = preferences.Schedule.IsValid ? preferences.Schedule : WorkSchedule.Standard;
         var templates = schedule.Entries.OrderBy(template => template.StartMinute).ToArray();
         var days = (state.Pace?.Sessions ?? []).GroupBy(session => WorkClock.Day(session.Start)).ToArray();
-        Set(planCaption, days.Length > 0 ? $"{(preferences.ShowUsed ? "Used" : "Left")} at session end" : null);
         Set(planEmpty, days.Length > 0 ? null
             : preferences.Workdays.Length == 0 ? "No work days selected."
             : templates.Length == 0 ? "No sessions configured."
@@ -358,11 +448,12 @@ internal sealed class MainWindow : Window
         SizePlanColumns();
 
         planGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        AddPlanCell(0, 0, "Workday", heading: true);
+        AddPlanCell(0, 0, Text("Workday", 16, strong: true));
         for (int index = 0; index < templates.Length; index++)
         {
             var template = templates[index];
-            AddPlanCell(0, index + 1, $"{template.Name}\n{Time(template.StartMinute)}–{Time(template.EndMinute)}", heading: true);
+            AddPlanCell(0, index + 1, Stack(2, Text(template.Name, 16, strong: true),
+                Text($"{Time(template.StartMinute)}–{Time(template.EndMinute)}", 14, secondary: true)));
         }
         for (int index = 0; index < days.Length; index++)
         {
@@ -370,12 +461,15 @@ internal sealed class MainWindow : Window
             var sessions = day.ToDictionary(session => session.Template.Id);
             int row = index + 1;
             planGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            AddPlanCell(row, 0, Day(day.Key), heading: true);
+            AddPlanCell(row, 0, Stack(2, Text(day.Key.ToString("ddd", CultureInfo.CurrentCulture), 16, strong: true),
+                Text(day.Key.ToString("d MMM", CultureInfo.CurrentCulture), 14, secondary: true)));
             for (int column = 0; column < templates.Length; column++)
             {
                 if (!sessions.TryGetValue(templates[column].Id, out var session))
                 {
-                    AddPlanCell(row, column + 1, "—");
+                    var missing = Text("—", 16, secondary: true);
+                    AutomationProperties.SetName(missing, "Outside this quota window");
+                    AddPlanCell(row, column + 1, missing);
                     continue;
                 }
                 bool active = state.Pace?.CurrentSession == session && session.Start <= now && now < session.End;
@@ -384,32 +478,52 @@ internal sealed class MainWindow : Window
         }
     }
 
-    private string PlanCell(WorkSession session, bool active, QuotaSample? quota, DateTimeOffset now)
+    private FrameworkElement PlanCell(WorkSession session, bool active, QuotaSample? quota, DateTimeOffset now)
     {
         var target = Oriented(session.CumulativeTargetPercent);
-        var lines = new List<string> { Range(session) };
+        var kind = preferences.ShowUsed ? "used" : "left";
+        var targetValue = PlanReading($"Target {kind}", target);
+        var details = Stack(5);
         if (active && quota is not null && quota.ObservedAt <= now && now < quota.ResetsAt)
         {
-            var kind = preferences.ShowUsed ? "used" : "left";
-            lines.Add($"Target {kind} {target} · Actual {kind} {Oriented(quota.UsedPercent)}");
+            details.Children.Add(Pair(targetValue, PlanReading($"Actual {kind}", Oriented(quota.UsedPercent)), 174));
             var room = Math.Round(session.CumulativeTargetPercent - quota.UsedPercent, 1);
-            lines.Add(IsStale(quota, now) ? $"Last reading {Stamp(quota.ObservedAt)}"
-                : room > 0 ? $"{Percent(room)} room to target"
-                : room < 0 ? $"{Percent(-room)} over target" : "At target");
+            var stale = IsStale(quota, now);
+            var note = Text(stale ? $"Last reading {Stamp(quota.ObservedAt)} · Now"
+                : room > 0 ? $"{Percent(room)} available · Now"
+                : room < 0 ? $"{Percent(-room)} over target · Now" : "At target · Now", 14);
+            note.Foreground = stale ? muted : room < 0 ? risk : onPace;
+            details.Children.Add(note);
         }
-        else lines.Add(target);
-        lines.Add($"{Percent(session.TargetPercent)} session share{(active ? " · Now" : "")}");
-        return string.Join(Environment.NewLine, lines);
+        else
+        {
+            details.Children.Add(targetValue);
+            if (active) details.Children.Add(Text("Now", 14, secondary: true));
+        }
+        if (Range(session) != $"{Time(session.Template.StartMinute)}–{Time(session.Template.EndMinute)}")
+            details.Children.Add(Text(Range(session), 14, secondary: true));
+
+        var share = $"{Percent(session.TargetPercent)} session share";
+        AutomationProperties.SetHelpText(details, share);
+        ToolTipService.SetToolTip(details, share);
+        return details;
     }
 
-    private void AddPlanCell(int row, int column, string value, bool heading = false, bool active = false)
+    private StackPanel PlanReading(string label, string value) =>
+        Stack(2, Text(label, 14, secondary: true), Text(value, 23, strong: true));
+
+    private void AddPlanCell(int row, int column, FrameworkElement content, bool active = false)
     {
-        var text = Text(value, 13, strong: heading);
         var cell = new Border
         {
-            Child = text,
-            Background = active ? selection : panel,
-            Padding = new Thickness(10, 8, 10, 8),
+            Child = active ? new Border
+            {
+                Child = content,
+                Background = selection,
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(10),
+            } : content,
+            Padding = active ? new Thickness(0, 4, 0, 4) : new Thickness(10, 14, 10, 14),
             BorderThickness = new Thickness(0, 0, 0, 1),
             BorderBrush = line,
         };
@@ -422,8 +536,8 @@ internal sealed class MainWindow : Window
     {
         if (planGrid.ColumnDefinitions.Count < 2) return;
         int sessionCount = planGrid.ColumnDefinitions.Count - 1;
-        const double firstWidth = 122;
-        double otherWidth = Math.Max(155, (planScroller.ActualWidth - firstWidth - sessionCount) / sessionCount);
+        const double firstWidth = 112;
+        double otherWidth = Math.Max(165, (planScroller.ActualWidth - firstWidth - sessionCount) / sessionCount);
         planGrid.ColumnDefinitions[0].Width = new GridLength(firstWidth);
         for (int index = 1; index < planGrid.ColumnDefinitions.Count; index++)
             planGrid.ColumnDefinitions[index].Width = new GridLength(otherWidth);
@@ -486,9 +600,9 @@ internal sealed class MainWindow : Window
         {
             Color background = systemColors.GetColorValue(UIColorType.Background);
             Color foreground = systemColors.GetColorValue(UIColorType.Foreground);
-            surface.Color = panel.Color = hero.Color = background;
+            surface.Color = panel.Color = hero.Color = inset.Color = background;
             ink.Color = muted.Color = line.Color = foreground;
-            selection.Color = background;
+            selection.Color = healthyBadge.Color = cautionBadge.Color = riskBadge.Color = background;
             onPace.Color = caution.Color = risk.Color = foreground;
             return;
         }
@@ -500,9 +614,13 @@ internal sealed class MainWindow : Window
         SetColor(muted, 0x5d645f, 0xbac2bd, dark);
         SetColor(line, 0xdce1dc, 0x3b443e, dark);
         SetColor(selection, 0xe6ebe6, 0x353e37, dark);
+        SetColor(inset, 0xeaf0ea, 0x2d372f, dark);
         SetColor(onPace, 0x287653, 0x8ac99e, dark);
         SetColor(caution, 0x946217, 0xe2ba73, dark);
         SetColor(risk, 0xa93846, 0xefa5a9, dark);
+        SetColor(healthyBadge, 0xdceee1, 0x294734, dark);
+        SetColor(cautionBadge, 0xffedc9, 0x594320, dark);
+        SetColor(riskBadge, 0xfbdce0, 0x642d37, dark);
     }
 
     private static void SetColor(SolidColorBrush brush, int light, int dark, bool darkMode)
@@ -538,7 +656,7 @@ internal sealed class MainWindow : Window
 
     private Border Rule() => new() { Height = 1, Background = line };
 
-    private StackPanel Metric(string label, string value) => Stack(2, Text(label, 12, secondary: true), Text(value, strong: true));
+    private StackPanel Metric(string label, string value) => Stack(2, Text(label, 16, secondary: true), Text(value, 18, strong: true));
 
     private static StackPanel Stack(double spacing, params UIElement[] children)
     {
@@ -595,7 +713,7 @@ internal sealed class MainWindow : Window
     private DateTimeOffset CurrentTime() => renderedNow + Stopwatch.GetElapsedTime(renderedAt);
     private string Oriented(double usedAmount) => QuotaDisplay.OrientedPercent(usedAmount, preferences.ShowUsed);
     private static string Percent(double? value) => QuotaDisplay.Percent(value);
-    private static string Rate(double? value) => value.HasValue ? $"{Percent(value)}/h" : "—";
+    private static string Rate(double? value) => value.HasValue ? $"{Percent(value)} per work hour" : "—";
     private static bool IsStale(QuotaSample quota, DateTimeOffset now) => now - quota.ObservedAt > TimeSpan.FromMinutes(45);
     private static string Day(DateOnly date) => date.ToString("ddd, d MMM", CultureInfo.CurrentCulture);
     private static string Stamp(DateTimeOffset instant) => WorkClock.Local(instant).ToString("ddd, d MMM HH:mm", CultureInfo.CurrentCulture);
