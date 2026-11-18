@@ -233,8 +233,8 @@ struct CodexPaceApp: App {
     @AppStorage("heroFocus") private var heroFocus: HeroFocus = .session
 
     var body: some Scene {
-        let menuBarTitle = DashboardFormat.menuBarTitle(
-            for: store.data, now: Date(), focus: heroFocus, display: targetDisplay
+        let menuBarSummary = MenuBarSummary.make(
+            data: store.data, now: Date(), focus: heroFocus, display: targetDisplay
         )
         Window("Codex Pace", id: "dashboard") {
             Dashboard(
@@ -256,7 +256,7 @@ struct CodexPaceApp: App {
         }
 
         MenuBarExtra {
-            Text(menuBarTitle)
+            Text(menuBarSummary.title)
             Divider()
             Text(store.data.status)
             Text(store.data.recommendation)
@@ -272,7 +272,7 @@ struct CodexPaceApp: App {
             Button("Quit Codex Pace") { NSApp.terminate(nil) }
                 .keyboardShortcut("q")
         } label: {
-            Text(menuBarTitle)
+            MenuBarStatusLabel(summary: menuBarSummary)
         }
     }
 }

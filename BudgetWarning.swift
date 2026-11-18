@@ -12,6 +12,8 @@ struct BudgetWarning: Equatable, Sendable {
     let recommendation: String
     let detail: String
 
+    var isWeekly: Bool { identifier.hasPrefix("weekly.") }
+
     init(scope: Scope, reset: Date, recommendation: String, detail: String, deadline: Date? = nil,
          title: String? = nil) {
         let resetTime = reset.timeIntervalSince1970

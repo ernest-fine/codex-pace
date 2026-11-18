@@ -31,6 +31,17 @@ enum Graphite {
     }
 }
 
+extension QuotaProgress.Level {
+    var color: Color {
+        switch self {
+        case .unknown: Graphite.muted
+        case .withinTarget: Graphite.onPace
+        case .slightlyOverTarget: Graphite.caution
+        case .overTarget: Graphite.risk
+        }
+    }
+}
+
 enum GraphiteButtonRole {
     case primary, secondary, quiet, danger
 
@@ -186,6 +197,46 @@ private struct GraphiteFieldChrome: ViewModifier {
                 shape.strokeBorder(isFocused ? Graphite.focus : Graphite.line, lineWidth: isFocused ? 2 : 1)
                     .allowsHitTesting(false)
             }
+    }
+}
+
+extension PaceAction {
+    func pillColors(dark: Bool) -> (background: NSColor, text: NSColor) {
+        let colors: (UInt32, UInt32) = switch (self, dark) {
+        case (.keepPace, false), (.roomToSpeedUp, false): (0xddeee2, 0x205c39)
+        case (.keepPace, true), (.roomToSpeedUp, true): (0x254931, 0xc5ecd0)
+        case (.slowDown, false): (0xffebbd, 0x6b4600)
+        case (.slowDown, true): (0x604817, 0xffe4a7)
+        case (.pause, false): (0xfbdce0, 0x8c2434)
+        case (.pause, true): (0x642d37, 0xffd0d8)
+        case (_, false): (0xe5e7e5, 0x404740)
+        case (_, true): (0x3a413b, 0xe0e6e1)
+        }
+        func color(_ rgb: UInt32) -> NSColor {
+            NSColor(srgbRed: CGFloat((rgb >> 16) & 255) / 255, green: CGFloat((rgb >> 8) & 255) / 255,
+                    blue: CGFloat(rgb & 255) / 255, alpha: 1)
+        }
+        return (color(colors.0), color(colors.1))
+    }
+}
+
+struct PaceStatusPill: View {
+    let action: PaceAction
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        let colors = action.pillColors(dark: colorScheme == .dark)
+        HStack(spacing: 7) {
+            Circle()
+                .frame(width: 7, height: 7)
+                .accessibilityHidden(true)
+            Text(action.title)
+                .font(.system(size: 16, weight: .semibold))
+        }
+        .foregroundStyle(Color(nsColor: colors.text))
+        .padding(.horizontal, 11)
+        .padding(.vertical, 4)
+        .background(Color(nsColor: colors.background), in: Capsule())
     }
 }
 

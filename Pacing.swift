@@ -159,13 +159,14 @@ enum SessionPaceStatus {
     case budgetUsed
 }
 
-enum SessionAction: Equatable {
+enum PaceAction: Equatable {
     case checkUsage
     case awaitingReadings
     case pause
     case slowDown
     case keepPace
     case roomToSpeedUp
+    case offHours
 
     var title: String {
         switch self {
@@ -175,12 +176,23 @@ enum SessionAction: Equatable {
         case .slowDown: "Slow down"
         case .keepPace: "Keep this pace"
         case .roomToSpeedUp: "Room to speed up"
+        case .offHours: "Off hours"
         }
+    }
+
+    static func weekly(pace: Pace?, quota: QuotaSample, now: Date) -> Self {
+        guard quota.resetsAt > now, (0...45 * minute).contains(now.timeIntervalSince(quota.observedAt)) else {
+            return .checkUsage
+        }
+        if quota.usedPercent >= 100 { return .pause }
+        guard let pace, pace.remainingWorkHours > 0 else { return .offHours }
+        guard let projected = pace.projectedPercent else { return .awaitingReadings }
+        return projected >= 100 ? .slowDown : .keepPace
     }
 }
 
 struct SessionGuidance {
-    let action: SessionAction
+    let action: PaceAction
     let safeSessionPercentPerHour: Double?
     let weeklyRisk: Bool
 }
@@ -227,6 +239,32 @@ struct ShiftEndComparison {
     var actualLeft: Double { 100 - actualUsed }
 }
 
+struct QuotaProgress {
+    enum Level {
+        case unknown, withinTarget, slightlyOverTarget, overTarget
+    }
+
+    let used: Double
+    let target: Double?
+    let showsRemaining: Bool
+
+    var displayedAmount: Double { oriented(used) }
+    var displayedTarget: Double? { target.map(oriented) }
+    var barFraction: Double { min(1, displayedAmount) }
+    var markerFraction: Double? { displayedTarget.map { min(1, $0) } }
+
+    var level: Level {
+        guard let target else { return .unknown }
+        if used <= target { return .withinTarget }
+        if used <= target * 1.10 { return .slightlyOverTarget }
+        return .overTarget
+    }
+
+    private func oriented(_ fraction: Double) -> Double {
+        max(0, showsRemaining ? 1 - fraction : fraction)
+    }
+}
+
 func shiftEndComparison(for session: WorkSession, quota: QuotaSample?, now: Date) -> ShiftEndComparison? {
     guard let quota, session.start <= now, now < session.end, now < quota.resetsAt,
           quota.observedAt <= now, (0...100).contains(quota.usedPercent) else { return nil }
@@ -251,7 +289,7 @@ func sessionGuidance(for pace: Pace, quota: QuotaSample?, now: Date) -> SessionG
     let sessionStatus = pace.sessionStatus
     let projectedOverBudget = (pace.sessionProjectedRoomToTarget ?? 0) < -0.75
 
-    let action: SessionAction
+    let action: PaceAction
     if weeklyExhausted || sessionStatus == .budgetUsed {
         action = .pause
     } else if weeklyRisk || projectedOverBudget || sessionStatus == .overPace {
