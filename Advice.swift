@@ -12,90 +12,31 @@ private func modelName(_ id: String, in models: [ModelOption]) -> String {
     models.first { $0.id == id }?.name ?? id
 }
 
-private enum TaskLoad {
-    case routine
-    case standard
-    case demanding
-}
-
-private func estimatedLoad(for activity: Activity?) -> TaskLoad {
-    guard let activity, activity.turns > 0 else { return .standard }
-    if activity.turns >= 5 || activity.tokens >= 500_000 {
-        return .demanding
-    }
-    if activity.turns <= 2 && activity.tokens < 100_000 &&
-        ["none", "minimal", "low", "medium"].contains(activity.effort ?? "") {
-        return .routine
-    }
-    return .standard
-}
-
-private func nextModel(load: TaskLoad, activity: Activity?, models: [ModelOption]) -> ModelOption? {
-    let current = models.first { $0.id == activity?.model }
-    let defaultModel = models.first(where: { $0.isDefault }) ?? current
-    switch load {
-    case .routine:
-        return models.first { $0.id.hasSuffix("-luna") } ?? current ?? defaultModel
-    case .standard:
-        let everyday = models.first { $0.id == "gpt-6.1-sol" }
-        return activity?.model?.hasSuffix("-astra") == true
-            ? everyday ?? current ?? defaultModel
-            : current ?? everyday ?? defaultModel
-    case .demanding:
-        return current ?? defaultModel
-    }
-}
-
-private func nextSettings(load: TaskLoad, activity: Activity?, models: [ModelOption]) -> String {
-    guard let selected = nextModel(load: load, activity: activity, models: models) else {
-        if let id = activity?.model {
-            return "Keep \(modelName(id, in: models)) and choose a lower available effort"
-        }
-        return "Choose a lower available effort"
-    }
-
-    let supported = effortOrder.filter { selected.efforts.contains($0) }
-    let activeEffort = activity?.effort ?? selected.defaultEffort
-    let activeRank = activeEffort.flatMap { effortOrder.firstIndex(of: $0) }
-    let preferred = supported.last { effort in
-        guard let rank = effortOrder.firstIndex(of: effort) else { return false }
-        let maximumRank = (activeRank ?? 4) - 1
-        switch load {
-        case .routine: return rank <= min(maximumRank, 2)
-        case .standard: return rank <= min(maximumRank, 4)
-        case .demanding: return rank <= maximumRank && rank >= 3
-        }
-    }
-
-    let effort = preferred
-        ?? activeEffort.flatMap { supported.contains($0) ? $0 : nil }
-        ?? supported.first
-        ?? selected.defaultEffort
-    guard let effort else { return "Use \(selected.name) with a lower available effort" }
-    let setting = "\(selected.name) · \(effortName(effort, model: selected.id))"
-    if selected.id == activity?.model, effort == activity?.effort {
-        return "Keep \(setting) and run fewer turns in parallel"
-    }
-    return "Use \(setting)"
-}
-
-func recommendedSpeed(
-    model: ModelOption?, activity: Activity?, quota: QuotaSample?, pace: Pace?, now: Date, hasBudgetWarning: Bool
-) -> String? {
-    guard model?.supportsFastMode == true, let activity, activity.turns > 0,
-          (0...3600).contains(now.timeIntervalSince(activity.observedAt)),
-          let quota, quota.resetsAt > now, (0..<100).contains(quota.usedPercent),
+private func quotaRecommendation(
+    quota: QuotaSample?, pace: Pace?, models: [ModelOption], now: Date
+) -> (setting: String, detail: String)? {
+    guard let quota, quota.resetsAt > now, (0..<100).contains(quota.usedPercent),
           (0...45 * 60).contains(now.timeIntervalSince(quota.observedAt)),
-          let pace, pace.remainingWorkHours > 0
+          let rate = pace?.safeRate, rate.isFinite, rate > 0
     else { return nil }
 
-    guard !hasBudgetWarning, estimatedLoad(for: activity) != .demanding,
-          let session = pace.currentSession, session.start <= now, now < session.end,
-          let projected = pace.projectedPercent, projected.isFinite, projected <= 80,
-          pace.sessionStatus == .onTrack, let room = pace.sessionRoomToTarget,
-          room >= session.targetPercent * 0.25
-    else { return "Standard" }
-    return "Fast"
+    let left = 100 - quota.usedPercent
+    let (family, effort): (String, String) = switch (left, rate) {
+    case (20..., 8...): ("-astra", "ultra")
+    case (10..., 4...): ("-astra", "max")
+    case (5..., 2...): ("-sol", "high")
+    default: ("-luna", "low")
+    }
+    guard let model = models.first(where: { $0.id.hasSuffix(family) })
+            ?? models.first(where: \.isDefault) ?? models.first else { return nil }
+
+    let allowed = effortOrder.prefix(through: effortOrder.firstIndex(of: effort) ?? 0)
+    let level = allowed.last(where: model.efforts.contains) ?? model.defaultEffort ?? model.efforts.first
+    let speed = model.supportsFastMode == true ? (left >= 30 && rate >= 12 ? "Fast" : "Standard") : nil
+    let settings = [model.name, level.map { effortName($0, model: model.id) }, speed]
+        .compactMap { $0 }.joined(separator: " · ")
+    let detail = "Based on \(DashboardFormat.percent(left)) of weekly quota left, or \(DashboardFormat.rate(rate)) before reset."
+    return ("Use \(settings)", detail)
 }
 
 func dashboardData(
@@ -113,7 +54,6 @@ func dashboardData(
     let recent = activity.flatMap { item in
         (0...3600).contains(now.timeIntervalSince(item.observedAt)) ? item : nil
     }
-    let load = estimatedLoad(for: recent)
     let activityText: String
     if let recent {
         let current = recent.model.map { modelName($0, in: models) } ?? "Model unavailable"
@@ -174,7 +114,7 @@ func dashboardData(
         let deadline = hasManualDeadline ? "your manual reset target" : "the scheduled reset"
         (status, recommendation, detail, tone) = (
             "Slow down",
-            nextSettings(load: load, activity: recent, models: models),
+            "Use a lower effort or pause non-urgent turns",
             "At this pace you could reach the weekly limit before \(deadline). Aim for \(rate) of weekly quota per work hour or less.",
             withinSession || quota.usedPercent >= 90 ? .critical : .caution
         )
@@ -193,7 +133,7 @@ func dashboardData(
             : "The cumulative shift-end target has been reached. Pause non-urgent turns until your next session."
         (status, recommendation, detail, tone) = (
             "Session budget at risk",
-            nextSettings(load: load, activity: recent, models: models),
+            "Use a lower effort or pause non-urgent turns",
             action,
             .caution
         )
@@ -211,7 +151,7 @@ func dashboardData(
         let ahead = (quota?.usedPercent ?? 0) > pace.targetPercent + 2
         (status, recommendation, detail, tone) = (
             ahead ? "Pace is sustainable" : "On pace",
-            "Keep your current model and effort",
+            "Keep this pace",
             ahead
                 ? "Usage is above the schedule target, and your recent pace fits the remaining allowance."
                 : "Your recent pace fits the remaining weekly allowance.",
@@ -226,31 +166,17 @@ func dashboardData(
         )
     }
 
-    let suggestedModel = warning == nil
-        ? models.first { $0.id == recent?.model }
-        : nextModel(load: load, activity: recent, models: models)
-    let speed = recommendedSpeed(
-        model: suggestedModel, activity: recent, quota: quota, pace: pace, now: now,
-        hasBudgetWarning: warning != nil || tone == .critical
-    )
-    let suggestedRecommendation: String
-    if warning == nil, speed != nil, let suggestedModel {
-        let effort = (recent?.effort ?? suggestedModel.defaultEffort).map {
-            " · \(effortName($0, model: suggestedModel.id))"
-        } ?? ""
-        suggestedRecommendation = "Use \(suggestedModel.name)\(effort)"
-    } else {
-        suggestedRecommendation = recommendation
-    }
+    let modelAdvice = quotaRecommendation(quota: quota, pace: pace, models: models, now: now)
 
     return DashboardData(
         quota: quota, pace: pace,
         guidance: pace.flatMap { sessionGuidance(for: $0, quota: quota, now: now) },
         shortQuota: shortQuota, status: status,
-        recommendation: suggestedRecommendation, recommendationDetail: detail, recommendationTone: tone,
+        recommendation: modelAdvice?.setting ?? recommendation,
+        recommendationDetail: modelAdvice?.detail ?? detail, recommendationTone: tone,
         recentActivity: activityText,
         source: telemetry?.source ?? "Connecting to Codex",
         isRefreshing: isRefreshing, isDemo: isDemo, error: telemetry?.error, budgetWarning: warning,
-        fastModeRecommendation: speed
+        hasModelRecommendation: modelAdvice != nil
     )
 }

@@ -30,9 +30,11 @@ internal static class ScheduleChecks
             ("Session change rejects stale, missing and reset comparisons", SessionDeltaChecks.RejectsUnavailableComparisons),
             ("The normal planner provides the Session change", SessionDeltaChecks.PlannerExposesTheChange),
             ("Fast support requires explicit model capabilities", FastModeChecks.ReadsExplicitModelCapabilities),
-            ("Fast mode is suggested with weekly and session headroom", FastModeChecks.SuggestsFastWithQuotaHeadroom),
-            ("Standard mode is suggested for quota pressure and heavy work", FastModeChecks.SuggestsStandardUnderPressure),
-            ("Unsupported models and stale readings omit speed advice", FastModeChecks.OmitsUnverifiedOrStaleAdvice),
+            ("Recommendation uses the quota left through the reset target", FastModeChecks.UsesQuotaThroughTheResetTarget),
+            ("Recommendation ignores the latest model, effort and workload", FastModeChecks.IgnoresRecentModelEffortAndWorkload),
+            ("Fast needs enough remaining quota and enough quota per hour", FastModeChecks.RequiresBothKindsOfHeadroomForFast),
+            ("Recommendations use settings the model supports", FastModeChecks.RespectsAvailableModelSettings),
+            ("Stale, exhausted or unplanned quota omits model advice", FastModeChecks.SkipsUnavailableOrExhaustedQuota),
         ];
 
         foreach (var (name, check) in checks)

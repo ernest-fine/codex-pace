@@ -6,11 +6,12 @@ struct FastModeTests {
     static func main() {
         readsFastCapabilityWithoutGuessingFromModelNames()
         liveCapabilityTakesPrecedenceOverTheCatalog()
-        recommendsFastOnlyWithProvenHeadroom()
-        recommendsStandardForPressureAndHeavyWork()
-        omitsAdviceWhenCapabilityOrReadingsAreMissing()
-        followsTheModelActuallySuggested()
-        print("6 Fast mode checks passed")
+        usesQuotaThroughTheResetTarget()
+        ignoresRecentModelEffortAndWorkload()
+        requiresBothKindsOfHeadroomForFast()
+        respectsAvailableModelSettings()
+        skipsUnavailableOrExhaustedQuota()
+        print("7 model and speed recommendation checks passed")
     }
 
     static func readsFastCapabilityWithoutGuessingFromModelNames() {
@@ -32,82 +33,88 @@ struct FastModeTests {
         precondition(ModelOption.enrichFastSupport([other], from: catalog).first?.supportsFastMode == nil)
     }
 
-    static func recommendsFastOnlyWithProvenHeadroom() {
-        let now = sample(hour: 10, minute: 30, used: 25).observedAt
-        let data = dashboard(now: now, previous: sample(hour: 10, used: 24))
-        precondition(data.budgetWarning == nil)
-        precondition(data.fastModeRecommendation == "Fast")
-        precondition(data.recommendation == "Use GPT-6.1 Sol · High")
-        precondition(data.showsRecommendation)
-        let unproven = dashboard(now: now)
-        precondition(unproven.fastModeRecommendation == "Standard")
-        precondition(unproven.recommendation == "Use GPT-6.1 Sol · High")
+    static func usesQuotaThroughTheResetTarget() {
+        let manual = dashboard(used: 51.7, deadlineHour: 13, previousUsed: 51.2)
+        precondition(abs((manual.pace?.sessionUsedFraction ?? 0) - 1.068) < 0.0001)
+        precondition(manual.budgetWarning?.isWeekly == false)
+        precondition(manual.recommendation == "Use Astra · Ultra · Fast", manual.recommendation)
+        precondition(manual.hasModelRecommendation && manual.showsRecommendation)
+
+        let scheduled = dashboard(used: 51.7, previousUsed: 51.2)
+        precondition(scheduled.recommendation == "Use Sol · High · Standard", scheduled.recommendation)
     }
 
-    static func recommendsStandardForPressureAndHeavyWork() {
-        let now = sample(hour: 10, minute: 30, used: 25).observedAt
-        let warning = dashboard(now: now, previous: sample(hour: 10, used: 10))
-        precondition(warning.budgetWarning != nil)
-        precondition(warning.fastModeRecommendation == "Standard")
-        let demanding = dashboard(now: now, previous: sample(hour: 10, used: 24), turns: 6, tokens: 600_000)
-        precondition(demanding.fastModeRecommendation == "Standard")
+    static func ignoresRecentModelEffortAndWorkload() {
+        let heavy = Activity(observedAt: now, model: "gpt-6.2-sol", effort: "max", turns: 8, tokens: 800_000)
+        let light = Activity(observedAt: now, model: "gpt-6-luna", effort: "low", turns: 1, tokens: 3_000)
+        let expected = "Use Astra · Ultra · Fast"
+        precondition(dashboard(used: 51.7, deadlineHour: 13, activity: heavy).recommendation == expected)
+        precondition(dashboard(used: 51.7, deadlineHour: 13, activity: light).recommendation == expected)
+        precondition(dashboard(used: 51.7, deadlineHour: 13).recommendation == expected)
     }
 
-    static func omitsAdviceWhenCapabilityOrReadingsAreMissing() {
-        let now = sample(hour: 10, minute: 30, used: 25).observedAt
-        let previous = sample(hour: 10, used: 24)
-        precondition(dashboard(now: now, previous: previous, supported: false).fastModeRecommendation == nil)
-        precondition(dashboard(now: now, previous: previous, supported: nil).fastModeRecommendation == nil)
-        let current = sample(hour: 10, minute: 30, used: 25)
-        let stale = now.addingTimeInterval(46 * 60)
-        precondition(recommendedSpeed(model: model(supported: true), activity: activity(at: stale),
-                                      quota: current, pace: nil, now: stale, hasBudgetWarning: false) == nil)
-        precondition(recommendedSpeed(model: model(supported: true), activity: nil,
-                                      quota: current, pace: nil, now: now, hasBudgetWarning: false) == nil)
+    static func requiresBothKindsOfHeadroomForFast() {
+        precondition(dashboard(used: 70, deadlineHour: 13).recommendation == "Use Astra · Ultra · Fast")
+        precondition(dashboard(used: 71, deadlineHour: 12).recommendation == "Use Astra · Ultra · Standard")
+        precondition(dashboard(used: 60, deadlineHour: 14).recommendation == "Use Astra · Ultra · Standard")
+        precondition(dashboard(used: 75, deadlineHour: 14).recommendation == "Use Astra · Max · Standard")
+        precondition(dashboard(used: 98, deadlineHour: 13).recommendation == "Use Luna · Low · Standard")
     }
 
-    static func followsTheModelActuallySuggested() {
-        let now = sample(hour: 10, minute: 30, used: 25).observedAt
-        let data = dashboard(now: now, previous: sample(hour: 10, used: 10), turns: 2, tokens: 50_000, effort: "low")
-        precondition(data.budgetWarning != nil)
-        precondition(data.recommendation.contains("Luna"))
-        precondition(data.fastModeRecommendation == nil)
+    static func respectsAvailableModelSettings() {
+        let supported = models[0]
+        let limited = ModelOption(id: supported.id, name: supported.name, efforts: ["low", "max"],
+                                  defaultEffort: "low", isDefault: false, supportsFastMode: false)
+        let result = dashboard(used: 50, deadlineHour: 13, available: [limited])
+        precondition(result.recommendation == "Use Astra · Max")
+        precondition(result.hasModelRecommendation)
     }
 
-    static func dashboard(
-        now: Date, previous: QuotaSample? = nil, supported: Bool? = true,
-        turns: Int = 3, tokens: Int = 200_000, effort: String = "high"
-    ) -> DashboardData {
-        let quota = sample(hour: 10, minute: 30, used: 25)
-        let models = [
-            model(supported: supported),
-            ModelOption(id: "gpt-6-luna", name: "GPT-6 Luna", efforts: ["low", "medium", "high"],
-                        defaultEffort: "medium", isDefault: false, supportsFastMode: false),
+    static func skipsUnavailableOrExhaustedQuota() {
+        let stale = dashboard(used: 25, deadlineHour: 13, observedAt: now.addingTimeInterval(-46 * 60))
+        precondition(!stale.hasModelRecommendation)
+        precondition(!dashboard(used: 100, deadlineHour: 13).hasModelRecommendation)
+        precondition(!dashboard(used: 25, deadlineHour: 13, available: []).hasModelRecommendation)
+        precondition(!dashboard(used: 25, deadlineHour: 13, workdays: []).hasModelRecommendation)
+    }
+
+    private static var now: Date { time(10, 30) }
+
+    private static var models: [ModelOption] {
+        [
+            ModelOption(id: "gpt-6.2-astra", name: "Astra", efforts: ["low", "medium", "high", "max", "ultra"],
+                        defaultEffort: "low", isDefault: false, supportsFastMode: true),
+            model(supported: true),
+            ModelOption(id: "gpt-6-luna", name: "Luna", efforts: ["low", "medium", "high"],
+                        defaultEffort: "medium", isDefault: false, supportsFastMode: true),
         ]
-        let history = previous.map { [$0, quota] } ?? [quota]
-        let telemetry = Telemetry(quota: quota, shortQuota: nil, history: history,
-                                  activity: activity(at: now, turns: turns, tokens: tokens, effort: effort),
-                                  models: models, source: "Codex account", error: nil)
+    }
+
+    private static func dashboard(
+        used: Double, deadlineHour: Int? = nil, previousUsed: Double? = nil, observedAt: Date? = nil,
+        activity: Activity? = nil, available: [ModelOption]? = nil, workdays: Set<Workday> = Workday.standard
+    ) -> DashboardData {
+        let reset = WorkClock.calendar.date(byAdding: .day, value: 7, to: time(0))!
+        let target = deadlineHour.map { ManualResetTarget(targetAt: time($0), windowResetsAt: reset) }
+        let quota = QuotaSample(observedAt: observedAt ?? now, resetsAt: reset, windowMinutes: 10080, usedPercent: used)
+        let history = previousUsed.map { used in
+            [QuotaSample(observedAt: time(10), resetsAt: reset, windowMinutes: 10080, usedPercent: used), quota]
+        } ?? [quota]
+        let telemetry = Telemetry(quota: quota, shortQuota: nil, history: history, activity: activity,
+                                  models: available ?? models, source: "Codex account", error: nil)
         let sessions = (9..<14).map { hour in
             SessionTemplate(id: UUID(), name: "Work \(hour)", startMinute: hour * 60, endMinute: (hour + 1) * 60)
         }
         return dashboardData(telemetry: telemetry, history: history, now: now, isRefreshing: false, isDemo: true,
-                             schedule: WorkSchedule(sessions: sessions), workdays: [.monday])
+                             schedule: WorkSchedule(sessions: sessions), resetTarget: target, workdays: workdays)
     }
 
     static func model(supported: Bool?) -> ModelOption {
-        ModelOption(id: "gpt-6.1-sol", name: "GPT-6.1 Sol", efforts: ["low", "medium", "high"],
+        ModelOption(id: "gpt-6.2-sol", name: "Sol", efforts: ["low", "medium", "high", "max"],
                     defaultEffort: "medium", isDefault: true, supportsFastMode: supported)
     }
 
-    static func activity(at date: Date, turns: Int = 3, tokens: Int = 200_000, effort: String = "high") -> Activity {
-        Activity(observedAt: date, model: "gpt-6.1-sol", effort: effort, turns: turns, tokens: tokens)
-    }
-
-    static func sample(hour: Int, minute: Int = 0, used: Double) -> QuotaSample {
-        let calendar = WorkClock.calendar
-        let observed = calendar.date(from: DateComponents(year: 2026, month: 11, day: 16, hour: hour, minute: minute))!
-        let reset = calendar.date(from: DateComponents(year: 2026, month: 11, day: 23))!
-        return QuotaSample(observedAt: observed, resetsAt: reset, windowMinutes: 10080, usedPercent: used)
+    private static func time(_ hour: Int, _ minute: Int = 0) -> Date {
+        WorkClock.calendar.date(from: DateComponents(year: 2026, month: 11, day: 16, hour: hour, minute: minute))!
     }
 }
