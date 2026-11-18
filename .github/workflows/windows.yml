@@ -61,18 +61,29 @@ jobs:
           using System;
           using System.Runtime.InteropServices;
           public static class PaceTrayCheck {
-              [DllImport("user32.dll")]
+              [DllImport("user32.dll", SetLastError = true)]
               public static extern bool PostMessageW(IntPtr handle, uint message, UIntPtr wParam, IntPtr lParam);
               [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
               public static extern IntPtr FindWindowW(string windowClass, string windowName);
               [DllImport("user32.dll")]
+              public static extern uint GetWindowThreadProcessId(IntPtr handle, out uint processId);
+              [DllImport("user32.dll")]
               public static extern bool IsWindowVisible(IntPtr handle);
           }
           '@
-              $dashboard = $app.MainWindowHandle
+              $deadline = (Get-Date).AddSeconds(12)
+              [uint32] $owner = 0
+              do {
+                $dashboard = [PaceTrayCheck]::FindWindowW([NullString]::Value, "Codex Pace")
+                if ($dashboard -ne 0) {
+                  [PaceTrayCheck]::GetWindowThreadProcessId($dashboard, [ref] $owner) | Out-Null
+                } else { Start-Sleep -Milliseconds 250 }
+              } until ($dashboard -ne 0 -or (Get-Date) -ge $deadline)
+              if ($dashboard -eq 0 -or $owner -ne $app.Id) { throw "Couldn’t find the demo dashboard in process $($app.Id)." }
               # WM_APP + 1 is the shell callback. The high word identifies tray icon 1.
               if (-not [PaceTrayCheck]::PostMessageW($dashboard, 0x8001, [UIntPtr]::Zero, [IntPtr]0x00010400)) {
-                throw "Couldn’t activate the demo tray icon."
+                $lastError = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
+                throw "Couldn’t activate the demo tray icon (Win32 error $lastError)."
               }
               $deadline = (Get-Date).AddSeconds(12)
               do {

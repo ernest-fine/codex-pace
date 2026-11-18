@@ -20,6 +20,7 @@ final class TrackerStore: ObservableObject {
     private let demo: String?
     private var timer: Timer?
     private var refreshing = false
+    private var lastRefresh = Date.distantPast
     private var telemetry: Telemetry?
     private var latestObservedQuota: QuotaSample?
     private var history: [QuotaSample] = []
@@ -57,8 +58,18 @@ final class TrackerStore: ObservableObject {
         guard timer == nil else { return }
         if demo == nil { notifications.start() }
         loadTelemetry(force: false)
-        timer = Timer.scheduledTimer(withTimeInterval: 120, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.loadTelemetry(force: false) }
+        timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.refreshOnSchedule() }
+        }
+    }
+
+    private func refreshOnSchedule() {
+        let now = Date()
+        let sessionActive = demo == nil && data.pace?.sessions.contains {
+            $0.start <= now && now < $0.end
+        } == true
+        if sessionActive || now.timeIntervalSince(lastRefresh) >= 120 {
+            loadTelemetry(force: false)
         }
     }
 
@@ -121,6 +132,7 @@ final class TrackerStore: ObservableObject {
 
     private func loadTelemetry(force: Bool) {
         guard !refreshing else { return }
+        lastRefresh = Date()
         if let demo {
             let example = Self.example(healthy: demo == "--demo=healthy")
             telemetry = example.telemetry
@@ -205,7 +217,7 @@ final class TrackerStore: ObservableObject {
         let now = calendar.date(from: DateComponents(year: 2026, month: 11, day: 18, hour: 15))!
         let reset = calendar.date(from: DateComponents(year: 2026, month: 11, day: 23, hour: 21, minute: 15))!
         let amounts: [Double] = healthy ? [35, 36, 38, 38, 39] : [49, 53, 57, 57, 60]
-        let offsets: [TimeInterval] = [4.5, 3.5, 2.5, 1, 0]
+        let offsets: [TimeInterval] = [4.5, 3.5, 2.5, 0.25, 0]
         let samples = zip(amounts, offsets).map { used, hours in
             QuotaSample(observedAt: now.addingTimeInterval(-hours * 3600),
                         resetsAt: reset, windowMinutes: 10080, usedPercent: used)

@@ -13,7 +13,9 @@ struct WorkScheduleTests {
         usesTheScheduleForTheTargetAndChecksStaleReadings()
         warnsWhenAPaceCanReachTheTargetSoon()
         warnsAtTheLimitAndSkipsStaleReadings()
-        print("9 pacing and schedule tests passed")
+        sessionChangeUsesTheLatestReadingWithinTheSession()
+        sessionChangeSkipsMissingStaleAndResetReadings()
+        print("11 pacing and schedule tests passed")
     }
 
     static func migratesSharedSessions() throws {
@@ -180,6 +182,38 @@ struct WorkScheduleTests {
         }
         return calculatePace(quota: quota, history: history, now: now ?? quota.observedAt,
                              schedule: WorkSchedule(sessions: sessions), workdays: [.monday])
+    }
+
+    static func sessionChangeUsesTheLatestReadingWithinTheSession() {
+        let opening = sample(hour: 10, used: 25)
+        let previous = sample(hour: 10, minute: 10, used: 26)
+        let latest = sample(hour: 10, minute: 30, used: 28)
+        let pace = carryoverPace(latest, history: [opening, previous, latest])
+        precondition(pace.sessionUsageChange == 10)
+
+        let exactStart = carryoverPace(latest, history: [opening])
+        precondition(exactStart.sessionUsageChange == 15)
+        let unchanged = sample(hour: 10, minute: 35, used: 28)
+        precondition(carryoverPace(unchanged, history: [latest]).sessionUsageChange == 0)
+    }
+
+    static func sessionChangeSkipsMissingStaleAndResetReadings() {
+        let latest = sample(hour: 10, minute: 30, used: 28)
+        precondition(carryoverPace(latest).sessionUsageChange == nil)
+        precondition(carryoverPace(latest, history: [latest]).sessionUsageChange == nil)
+        precondition(carryoverPace(latest, history: [sample(hour: 9, minute: 59, used: 25)]).sessionUsageChange == nil)
+
+        let oldWindow = QuotaSample(observedAt: sample(hour: 10, used: 25).observedAt,
+                                    resetsAt: latest.resetsAt.addingTimeInterval(-7 * 24 * 3600),
+                                    windowMinutes: latest.windowMinutes, usedPercent: 25)
+        precondition(carryoverPace(latest, history: [oldWindow]).sessionUsageChange == nil)
+        precondition(carryoverPace(latest, history: [sample(hour: 10, used: 35)]).sessionUsageChange == nil)
+
+        let staleNow = sample(hour: 10, minute: 55, used: 28).observedAt
+        let staleQuota = sample(hour: 10, minute: 5, used: 28)
+        precondition(carryoverPace(staleQuota, history: [sample(hour: 10, used: 25)], now: staleNow).sessionUsageChange == nil)
+        let freshQuota = sample(hour: 10, minute: 55, used: 28)
+        precondition(carryoverPace(freshQuota, history: [sample(hour: 10, used: 25)]).sessionUsageChange == nil)
     }
 
     static func sample(hour: Int, minute: Int = 0, used: Double) -> QuotaSample {

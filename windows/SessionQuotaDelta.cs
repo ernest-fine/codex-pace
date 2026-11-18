@@ -35,7 +35,8 @@ internal sealed record SessionQuotaDelta(double UsedPercentagePoints, double Lef
         double amount = Math.Round(showUsed ? UsedPercentagePoints : LeftPercentagePoints, 1, MidpointRounding.AwayFromZero);
         if (amount == 0) return null;
         string value = Math.Abs(amount).ToString("0.#", CultureInfo.CurrentCulture);
-        return showUsed ? $"+{value} pp used since last reading" : $"-{value} pp left since last reading";
+        string sign = amount > 0 ? "+" : "−";
+        return $"{sign}{value}% of session quota since last reading";
     }
 
     private static bool ValidReading(QuotaSample sample, WorkSession session, DateTimeOffset now) =>

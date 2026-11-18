@@ -210,6 +210,7 @@ struct Pace {
     let sessionRoomToTarget: Double?
     let sessionProjectedRoomToTarget: Double?
     let sessionTargetFraction: Double?
+    let sessionUsageChange: Double?
 
     var sessionUsedFraction: Double? {
         guard let share = currentSession?.targetPercent, share > 0, let sessionRoomToTarget else { return nil }
@@ -360,8 +361,22 @@ func calculatePace(
         exhaustionDate: estimatedExhaustion(sessions: sessions, now: now, used: used, recentRate: recentRate),
         sessionRoomToTarget: sessionRoomToTarget,
         sessionProjectedRoomToTarget: sessionProjectedRoomToTarget,
-        sessionTargetFraction: sessionTargetFraction
+        sessionTargetFraction: sessionTargetFraction,
+        sessionUsageChange: currentSession.flatMap {
+            sessionUsageChange(for: $0, quota: quota, samples: samples, now: now)
+        }
     )
+}
+
+private func sessionUsageChange(for session: WorkSession, quota: QuotaSample, samples: [QuotaSample], now: Date) -> Double? {
+    guard session.targetPercent.isFinite, session.targetPercent > 0,
+          quota.resetsAt > now, (0...100).contains(quota.usedPercent),
+          (0...45 * minute).contains(now.timeIntervalSince(quota.observedAt)),
+          let latest = samples.last, latest.observedAt == quota.observedAt,
+          let previous = samples.dropLast().last(where: { $0.observedAt >= session.start }),
+          (0...45 * minute).contains(now.timeIntervalSince(previous.observedAt))
+    else { return nil }
+    return (latest.usedPercent - previous.usedPercent) * 100 / session.targetPercent
 }
 
 private func makeWorkSessions(

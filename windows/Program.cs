@@ -226,8 +226,8 @@ internal sealed class PaceApplication
     private static Telemetry Example()
     {
         var reset = WorkClock.At(new DateOnly(2026, 11, 23), 1275);
-        var offsets = new[] { -4.5, -3.5, -2.5, -1, 0 };
-        var amounts = new double[] { 35, 36, 38, 38, 39.5 };
+        var offsets = new[] { -4.5, -3.5, -2.5, -1, -0.25, 0 };
+        var amounts = new double[] { 35, 36, 38, 38, 38, 39.5 };
         var history = offsets.Zip(amounts, (hours, used) =>
             new QuotaSample(DemoTime.AddHours(hours), reset, 10_080, used)).ToArray();
         ModelOption[] models =

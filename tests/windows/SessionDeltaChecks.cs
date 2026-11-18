@@ -25,8 +25,8 @@ internal static class SessionDeltaChecks
         try
         {
             CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-            Equal("+5 pp used since last reading", delta.Caption(showUsed: true));
-            Equal("-5 pp left since last reading", delta.Caption(showUsed: false));
+            Equal("+5% of session quota since last reading", delta.Caption(showUsed: true));
+            Equal("−5% of session quota since last reading", delta.Caption(showUsed: false));
         }
         finally { CultureInfo.CurrentCulture = culture; }
     }

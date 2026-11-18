@@ -364,11 +364,26 @@ private struct CurrentSessionContent: View {
         let comparison = shiftEndComparison(for: session, quota: quota, now: now)
 
         return VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .bottom, spacing: 16) {
-                QuotaReading(label: "Session quota \(targetDisplay.rawValue)", percent: shownPercent ?? "—", size: 54)
-                Spacer(minLength: 0)
-                if let targetPercent {
-                    QuotaReading(label: "Target \(targetDisplay.rawValue) by now", percent: targetPercent, size: 36, alignment: .trailing)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .bottom, spacing: 16) {
+                    QuotaReading(label: "Session quota \(targetDisplay.rawValue)", percent: shownPercent ?? "—", size: 54)
+                    Spacer(minLength: 0)
+                    if let targetPercent {
+                        QuotaReading(label: "Target \(targetDisplay.rawValue) by now", percent: targetPercent, size: 36, alignment: .trailing)
+                    }
+                }
+                if let usedFraction, let change = pace.sessionUsageChange {
+                    let used = 100 * usedFraction
+                    let current = max(0, targetDisplay.percent(forUsed: used))
+                    let previous = max(0, targetDisplay.percent(forUsed: used - change))
+                    let difference = ((current - previous) * 10).rounded() / 10
+                    if difference != 0 {
+                        let sign = difference > 0 ? "+" : "−"
+                        let amount = abs(difference).formatted(.number.precision(.fractionLength(0...1)))
+                        Text("\(sign)\(amount)% of session quota since last reading")
+                            .font(.system(size: 14).monospacedDigit())
+                            .foregroundStyle(Graphite.muted)
+                    }
                 }
             }
 
@@ -673,6 +688,7 @@ private struct WeeklyQuotaContent: View {
                 Text("Weekly pacing details")
                     .font(.system(size: 16, weight: .medium))
             }
+            .disclosureGroupStyle(FullRowDisclosureStyle())
         }
     }
 
@@ -758,6 +774,33 @@ private struct WeeklyQuotaContent: View {
             if let shortQuota {
                 GraphiteDivider()
                 ShortQuotaSummary(quota: shortQuota)
+            }
+        }
+    }
+}
+
+private struct FullRowDisclosureStyle: DisclosureGroupStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                configuration.isExpanded.toggle()
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: configuration.isExpanded ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(Graphite.muted)
+                        .frame(width: 12)
+                        .accessibilityHidden(true)
+                    configuration.label
+                    Spacer(minLength: 0)
+                }
+                .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(configuration.isExpanded ? "Expanded" : "Collapsed")
+            if configuration.isExpanded {
+                configuration.content
             }
         }
     }

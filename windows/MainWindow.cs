@@ -405,14 +405,17 @@ internal sealed class MainWindow : Window
     private FrameworkElement Readings(string usageLabel, string usage, double? target, string? change = null)
     {
         var main = Stack(2, Text(usageLabel, 16, secondary: true), Text(usage, 54, strong: true));
-        if (change is not null) main.Children.Add(Text(change, 14, secondary: true));
-        if (target is not { } value || !double.IsFinite(value)) return main;
-        var label = Text($"Target {(preferences.ShowUsed ? "used" : "left")} by now", 16, secondary: true);
-        var number = Text(Oriented(value), 36, strong: true);
-        label.TextAlignment = number.TextAlignment = TextAlignment.Right;
-        var planned = Stack(2, label, number);
-        planned.VerticalAlignment = VerticalAlignment.Bottom;
-        return Pair(main, planned, 224);
+        FrameworkElement readings = main;
+        if (target is { } value && double.IsFinite(value))
+        {
+            var label = Text($"Target {(preferences.ShowUsed ? "used" : "left")} by now", 16, secondary: true);
+            var number = Text(Oriented(value), 36, strong: true);
+            label.TextAlignment = number.TextAlignment = TextAlignment.Right;
+            var planned = Stack(2, label, number);
+            planned.VerticalAlignment = VerticalAlignment.Bottom;
+            readings = Pair(main, planned, 224);
+        }
+        return change is null ? readings : Stack(2, readings, Text(change, 14, secondary: true));
     }
 
     private FrameworkElement Progress(string label, double usedAmount, double? target, Brush? fill = null)
