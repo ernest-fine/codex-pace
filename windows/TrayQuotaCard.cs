@@ -57,7 +57,6 @@ internal sealed class TrayQuotaCard : IDisposable
 
     public TrayQuotaCard()
     {
-        Trace("Hit popup constructor");
         handle = WindowNative.GetWindowHandle(window);
         var presenter = OverlappedPresenter.CreateForContextMenu();
         presenter.SetBorderAndTitleBar(false, false);
@@ -67,7 +66,6 @@ internal sealed class TrayQuotaCard : IDisposable
         presenter.IsAlwaysOnTop = true;
         window.AppWindow.SetPresenter(presenter);
         window.AppWindow.IsShownInSwitchers = false;
-        Trace("Presenter configured");
         appearance = ThemeSettings.CreateForWindowId(window.AppWindow.Id);
 
         title = Text(17, true);
@@ -157,17 +155,12 @@ internal sealed class TrayQuotaCard : IDisposable
         trayDismissedAt = 0;
         this.anchor = anchor;
         this.reading = reading;
-        Trace("Rendering popup");
         Render();
-        Trace("Positioning popup");
         Position(moveToMonitor: true);
         wasActivated = false;
         isOpen = true;
-        Trace("Showing popup");
         window.AppWindow.Show();
-        Trace("Activating popup");
         window.Activate();
-        Trace("Popup activated");
     }
 
     public void Update(TrayQuotaReading reading)
@@ -228,7 +221,6 @@ internal sealed class TrayQuotaCard : IDisposable
     private void Position(bool moveToMonitor = false)
     {
         var display = DisplayArea.GetFromRect(anchor, DisplayAreaFallback.Nearest);
-        Trace("Found display for popup");
         var work = display.WorkArea;
         var outer = display.OuterBounds;
         int anchorX = anchor.X - outer.X;
@@ -243,9 +235,7 @@ internal sealed class TrayQuotaCard : IDisposable
         int gap = Math.Max(1, (int)Math.Round(8 * scale));
         int width = Math.Max(1, Math.Min((int)Math.Ceiling(CardWidth * scale), work.Width - 2 * gap));
         double logicalWidth = width / scale;
-        Trace("Measuring popup");
         root.Measure(new Size(logicalWidth, double.PositiveInfinity));
-        Trace("Measured popup");
         int height = Math.Max(1, Math.Min((int)Math.Ceiling(root.DesiredSize.Height * scale), work.Height - 2 * gap));
         int left = Math.Clamp(anchorX + anchor.Width - width, work.X + gap,
             Math.Max(work.X + gap, work.X + work.Width - width - gap));
@@ -267,13 +257,11 @@ internal sealed class TrayQuotaCard : IDisposable
             xamlRoot.Changed -= XamlChanged;
             xamlRoot.Changed += XamlChanged;
         }
-        Trace("Popup loaded");
         if (isOpen) Position();
     }
 
     private void XamlChanged(XamlRoot sender, XamlRootChangedEventArgs args)
     {
-        Trace("Popup XAML root changed");
         if (isOpen && !disposed) Position();
     }
 
@@ -363,12 +351,6 @@ internal sealed class TrayQuotaCard : IDisposable
     {
         text.Text = value ?? string.Empty;
         text.Visibility = string.IsNullOrWhiteSpace(value) ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    private static void Trace(string message)
-    {
-        if (Environment.GetEnvironmentVariable("CODEX_PACE_TRAY_CHECK_LOG") is { } log)
-            File.AppendAllText(log, message + Environment.NewLine);
     }
 
     private static Color ColorFor(int rgb) =>

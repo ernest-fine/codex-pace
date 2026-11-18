@@ -44,29 +44,10 @@ jobs:
           $output = Join-Path $env:RUNNER_TEMP "CodexPace"
           dotnet publish windows/CodexPace.csproj -c Release -r "win-$env:ARCH" --self-contained true "-p:Platform=$env:PLATFORM" -o $output
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path (Join-Path $output "CodexPace.pri"))) { throw "The WinUI application resource index is missing from the published app." }
           "PACE_OUTPUT=$output" >> $env:GITHUB_ENV
-      - name: Compare WinUI startup with the published Windows build
-        run: |
-          Write-Output "Interactive process: $([Environment]::UserInteractive) / session $((Get-Process -Id $PID).SessionId)"
-          query.exe user 2>&1 | Out-Host
-          $oldApp = Join-Path $env:RUNNER_TEMP "CodexPaceBaseline"
-          $zip = "$oldApp.zip"
-          Invoke-WebRequest "https://github.com/ernest-fine/codex-pace/releases/download/v1.23.4/Codex-Pace-Windows-$env:ARCH.zip" -OutFile $zip
-          Expand-Archive $zip -DestinationPath $oldApp
-          $baseline = Start-Process (Join-Path $oldApp "CodexPace.exe") -ArgumentList "--demo" -WorkingDirectory $oldApp -PassThru
-          try {
-            if ($baseline.WaitForExit(10000)) { Write-Output "Published build exited with code $($baseline.ExitCode)." }
-            else {
-              $baseline.Refresh()
-              Write-Output "Published build responsive $($baseline.Responding) and main window $($baseline.MainWindowHandle)."
-            }
-          } finally {
-            if (-not $baseline.HasExited) { Stop-Process -Id $baseline.Id }
-          }
       - name: Verify that tray activation opens and closes the quota card
         run: |
-          $env:CODEX_PACE_TRAY_CHECK_LOG = Join-Path $env:RUNNER_TEMP "Codex-Pace-Tray-Check.log"
-          $started = Get-Date
           $app = Start-Process (Join-Path $env:PACE_OUTPUT "CodexPace.exe") -ArgumentList "--demo", "--check-tray" -WorkingDirectory $env:PACE_OUTPUT -PassThru
           try {
             if (-not $app.WaitForExit(45000)) { throw "The tray quota card check timed out." }
@@ -74,12 +55,7 @@ jobs:
               0 { Write-Output "Tray activation opened and closed the quota card." }
               2 { throw "The tray quota card did not open." }
               3 { throw "The tray quota card did not close." }
-              default {
-                if (Test-Path $env:CODEX_PACE_TRAY_CHECK_LOG) { Get-Content $env:CODEX_PACE_TRAY_CHECK_LOG }
-                Get-WinEvent -FilterHashtable @{ LogName="Application"; StartTime=$started; Id=1000,1026 } -ErrorAction SilentlyContinue |
-                  Where-Object { $_.Message -match "CodexPace" } | Select-Object -First 3 -ExpandProperty Message
-                throw "The tray quota card check failed with exit code $($app.ExitCode)."
-              }
+              default { throw "The tray quota card check failed with exit code $($app.ExitCode)." }
             }
           } finally {
             if (-not $app.HasExited) { Stop-Process -Id $app.Id }

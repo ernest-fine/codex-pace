@@ -14,8 +14,6 @@ public partial class App : Application
 
     public App()
     {
-        if (Environment.GetEnvironmentVariable("CODEX_PACE_TRAY_CHECK_LOG") is { } log)
-            File.AppendAllText(log, "Initializing WinUI application\n");
         InitializeComponent();
     }
 
@@ -40,12 +38,6 @@ public partial class App : Application
 
         var arguments = Environment.GetCommandLineArgs().Skip(1).ToArray();
         bool demo = arguments.Contains("--demo", StringComparer.Ordinal);
-        bool checkTray = demo && arguments.Contains("--check-tray", StringComparer.Ordinal);
-        if (checkTray && Environment.GetEnvironmentVariable("CODEX_PACE_TRAY_CHECK_LOG") is { } log)
-        {
-            File.AppendAllText(log, "Launching dashboard for tray check\n");
-            UnhandledException += (_, error) => File.AppendAllText(log, $"{error.Message}\n{error.Exception}\n");
-        }
         host = new PaceApplication(demo, ExitHost);
         var dispatcher = DispatcherQueue.GetForCurrentThread();
         activationWait = ThreadPool.RegisterWaitForSingleObject(
@@ -54,7 +46,7 @@ public partial class App : Application
             null,
             Timeout.Infinite,
             executeOnlyOnce: false);
-        if (checkTray) _ = host.CheckTrayAsync();
+        if (demo && arguments.Contains("--check-tray", StringComparer.Ordinal)) _ = host.CheckTrayAsync();
     }
 
     private void ExitHost()

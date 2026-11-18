@@ -21,4 +21,14 @@
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.5" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4948" />
   </ItemGroup>
+  <!-- The unpackaged Windows App SDK targets generate this PRI without publishing it. -->
+  <Target Name="PublishApplicationPri" BeforeTargets="ComputeResolvedFilesToPublishList"
+          DependsOnTargets="$(GenerateProjectPriFile)" Condition="'$(WindowsPackageType)' == 'None'">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(ProjectPriFullPath)" Condition="Exists('$(ProjectPriFullPath)')">
+        <RelativePath>$(ProjectPriFileName)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 </Project>
