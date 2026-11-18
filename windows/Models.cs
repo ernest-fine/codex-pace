@@ -22,6 +22,9 @@ internal sealed record WorkSchedule(int MorningStart, int MorningEnd, int Aftern
     [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
     public SessionTemplate[]? Sessions { get; init; }
 
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Dictionary<DayOfWeek, SessionTemplate[]>? DaySessions { get; init; }
+
     [JsonIgnore]
     public IReadOnlyList<SessionTemplate> Entries => Sessions ??
         [new(MorningId, "Morning", MorningStart, MorningEnd), new(AfternoonId, "Afternoon", AfternoonStart, AfternoonEnd)];
@@ -29,29 +32,43 @@ internal sealed record WorkSchedule(int MorningStart, int MorningEnd, int Aftern
     public static WorkSchedule FromSessions(IEnumerable<SessionTemplate> entries) =>
         Standard with { Sessions = entries.ToArray() };
 
-    [JsonIgnore]
-    public bool IsValid
+    public IReadOnlyList<SessionTemplate> EntriesOn(DayOfWeek day) =>
+        DaySessions is not null && DaySessions.TryGetValue(day, out var entries) && entries is not null
+            ? entries : Entries;
+
+    public WorkSchedule WithDaySessions(DayOfWeek day, IEnumerable<SessionTemplate> entries)
     {
-        get
+        if (!Enum.IsDefined(day)) throw new ArgumentOutOfRangeException(nameof(day));
+        var updated = DaySessions is null
+            ? new Dictionary<DayOfWeek, SessionTemplate[]>()
+            : new Dictionary<DayOfWeek, SessionTemplate[]>(DaySessions);
+        // Retain an empty override so clearing one day doesn't restore the shared sessions.
+        updated[day] = entries.ToArray();
+        return this with { DaySessions = updated };
+    }
+
+    [JsonIgnore]
+    public bool IsValid => AreValid(Entries) && (DaySessions is null || DaySessions.All(pair =>
+        Enum.IsDefined(pair.Key) && pair.Value is not null && AreValid(pair.Value)));
+
+    private static bool AreValid(IReadOnlyList<SessionTemplate> entries)
+    {
+        var ids = new HashSet<Guid>();
+        foreach (var entry in entries)
         {
-            var entries = Entries;
-            var ids = new HashSet<Guid>();
-            foreach (var entry in entries)
-            {
-                if (entry is null || string.IsNullOrWhiteSpace(entry.Name) || !ids.Add(entry.Id) ||
-                    entry.StartMinute < 0 || entry.StartMinute >= entry.EndMinute || entry.EndMinute >= 1440)
-                    return false;
-            }
-
-            int previousEnd = 0;
-            foreach (var entry in entries.OrderBy(entry => entry.StartMinute))
-            {
-                if (entry.StartMinute < previousEnd) return false;
-                previousEnd = entry.EndMinute;
-            }
-
-            return true;
+            if (entry is null || string.IsNullOrWhiteSpace(entry.Name) || !ids.Add(entry.Id) ||
+                entry.StartMinute < 0 || entry.StartMinute >= entry.EndMinute || entry.EndMinute >= 1440)
+                return false;
         }
+
+        int previousEnd = 0;
+        foreach (var entry in entries.OrderBy(entry => entry.StartMinute))
+        {
+            if (entry.StartMinute < previousEnd) return false;
+            previousEnd = entry.EndMinute;
+        }
+
+        return true;
     }
 }
 

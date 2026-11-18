@@ -261,9 +261,6 @@ internal static class Planner
         DateTimeOffset start, DateTimeOffset end, WorkSchedule schedule, IReadOnlyList<DayOfWeek> workdays)
     {
         if (start >= end || workdays.Count == 0) return [];
-        var templates = schedule.Entries.OrderBy(template => template.StartMinute).ToArray();
-        if (templates.Length == 0) return [];
-
         var selectedDays = workdays.ToHashSet();
         var intervals = new List<(DateTimeOffset Start, DateTimeOffset End, SessionTemplate Template)>();
 
@@ -271,7 +268,7 @@ internal static class Planner
         {
             if (!selectedDays.Contains(day.DayOfWeek)) continue;
 
-            foreach (var template in templates)
+            foreach (var template in schedule.EntriesOn(day.DayOfWeek).OrderBy(template => template.StartMinute))
             {
                 var shiftStart = Later(start, WorkClock.At(day, template.StartMinute));
                 var shiftEnd = Earlier(end, WorkClock.At(day, template.EndMinute));

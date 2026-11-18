@@ -427,14 +427,19 @@ internal sealed class MainWindow : Window
         return track;
     }
 
+    private sealed record PlanDay(DateOnly Date, SessionTemplate[] Templates, Dictionary<Guid, WorkSession> Sessions);
+
     private void RenderPlan(DashboardData state, DateTimeOffset now)
     {
         var schedule = preferences.Schedule.IsValid ? preferences.Schedule : WorkSchedule.Standard;
-        var templates = schedule.Entries.OrderBy(template => template.StartMinute).ToArray();
-        var days = (state.Pace?.Sessions ?? []).GroupBy(session => WorkClock.Day(session.Start)).ToArray();
+        var days = (state.Pace?.Sessions ?? []).GroupBy(session => WorkClock.Day(session.Start))
+            .Select(group => new PlanDay(group.Key,
+                schedule.EntriesOn(group.Key.DayOfWeek).OrderBy(template => template.StartMinute).ToArray(),
+                group.ToDictionary(session => session.Template.Id)))
+            .ToArray();
         Set(planEmpty, days.Length > 0 ? null
             : preferences.Workdays.Length == 0 ? "No work days selected."
-            : templates.Length == 0 ? "No sessions configured."
+            : !preferences.Workdays.Any(day => schedule.EntriesOn(day).Count > 0) ? "No sessions configured."
             : state.Pace is null ? "Work sessions appear with the weekly quota."
             : "The quota window contains no scheduled work hours.");
         planScroller.Visibility = days.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -443,47 +448,59 @@ internal sealed class MainWindow : Window
         planGrid.ColumnDefinitions.Clear();
         planGrid.RowDefinitions.Clear();
         if (days.Length == 0) return;
+        var columns = days.Max(day => day.Templates.Length);
+        var templates = days[0].Templates;
+        bool sharedTemplates = days.All(day => day.Templates.SequenceEqual(templates));
         planGrid.ColumnDefinitions.Add(new ColumnDefinition());
-        foreach (var template in templates) planGrid.ColumnDefinitions.Add(new ColumnDefinition());
+        for (int index = 0; index < columns; index++) planGrid.ColumnDefinitions.Add(new ColumnDefinition());
         SizePlanColumns();
 
         planGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         AddPlanCell(0, 0, Text("Workday", 16, strong: true));
-        for (int index = 0; index < templates.Length; index++)
+        for (int index = 0; index < columns; index++)
         {
-            var template = templates[index];
-            AddPlanCell(0, index + 1, Stack(2, Text(template.Name, 16, strong: true),
-                Text($"{Time(template.StartMinute)}–{Time(template.EndMinute)}", 14, secondary: true)));
+            if (sharedTemplates)
+            {
+                var template = templates[index];
+                AddPlanCell(0, index + 1, Stack(2, Text(template.Name, 16, strong: true),
+                    Text($"{Time(template.StartMinute)}–{Time(template.EndMinute)}", 14, secondary: true)));
+            }
+            else AddPlanCell(0, index + 1, Text($"Session {index + 1}", 16, strong: true));
         }
         for (int index = 0; index < days.Length; index++)
         {
             var day = days[index];
-            var sessions = day.ToDictionary(session => session.Template.Id);
             int row = index + 1;
             planGrid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            AddPlanCell(row, 0, Stack(2, Text(day.Key.ToString("ddd", CultureInfo.CurrentCulture), 16, strong: true),
-                Text(day.Key.ToString("d MMM", CultureInfo.CurrentCulture), 14, secondary: true)));
-            for (int column = 0; column < templates.Length; column++)
+            AddPlanCell(row, 0, Stack(2, Text(day.Date.ToString("ddd", CultureInfo.CurrentCulture), 16, strong: true),
+                Text(day.Date.ToString("d MMM", CultureInfo.CurrentCulture), 14, secondary: true)));
+            for (int column = 0; column < columns; column++)
             {
-                if (!sessions.TryGetValue(templates[column].Id, out var session))
+                bool hasTemplate = column < day.Templates.Length;
+                if (!hasTemplate || !day.Sessions.TryGetValue(day.Templates[column].Id, out var session))
                 {
                     var missing = Text("—", 16, secondary: true);
-                    AutomationProperties.SetName(missing, "Outside this quota window");
+                    AutomationProperties.SetName(missing, hasTemplate ? "Outside this quota window" : "No session scheduled");
                     AddPlanCell(row, column + 1, missing);
                     continue;
                 }
                 bool active = state.Pace?.CurrentSession == session && session.Start <= now && now < session.End;
-                AddPlanCell(row, column + 1, PlanCell(session, active, state.Quota, now), active: active);
+                AddPlanCell(row, column + 1, PlanCell(session, !sharedTemplates, active, state.Quota, now), active: active);
             }
         }
     }
 
-    private FrameworkElement PlanCell(WorkSession session, bool active, QuotaSample? quota, DateTimeOffset now)
+    private FrameworkElement PlanCell(WorkSession session, bool showSessionName, bool active, QuotaSample? quota, DateTimeOffset now)
     {
         var target = Oriented(session.CumulativeTargetPercent);
         var kind = preferences.ShowUsed ? "used" : "left";
         var targetValue = PlanReading($"Target {kind}", target);
         var details = Stack(5);
+        if (showSessionName)
+        {
+            details.Children.Add(Text(session.Template.Name, 16, strong: true));
+            details.Children.Add(Text(Range(session), 14, secondary: true));
+        }
         if (active && quota is not null && quota.ObservedAt <= now && now < quota.ResetsAt)
         {
             details.Children.Add(Pair(targetValue, PlanReading($"Actual {kind}", Oriented(quota.UsedPercent)), 174));
@@ -500,7 +517,7 @@ internal sealed class MainWindow : Window
             details.Children.Add(targetValue);
             if (active) details.Children.Add(Text("Now", 14, secondary: true));
         }
-        if (Range(session) != $"{Time(session.Template.StartMinute)}–{Time(session.Template.EndMinute)}")
+        if (!showSessionName && Range(session) != $"{Time(session.Template.StartMinute)}–{Time(session.Template.EndMinute)}")
             details.Children.Add(Text(Range(session), 14, secondary: true));
 
         var share = $"{Percent(session.TargetPercent)} session share";
@@ -545,7 +562,7 @@ internal sealed class MainWindow : Window
 
     private async Task EditSessionsAsync(XamlRoot xamlRoot)
     {
-        var schedule = await SettingsDialogs.EditSessionsAsync(xamlRoot, preferences.Schedule);
+        var schedule = await SettingsDialogs.EditSessionsAsync(xamlRoot, preferences.Schedule, preferences.Workdays, CurrentTime());
         if (schedule is not null) PreferencesChanged?.Invoke(preferences with { Schedule = schedule });
     }
 

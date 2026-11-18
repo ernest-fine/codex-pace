@@ -20,7 +20,7 @@ Keep Codex Pace running for background updates and notifications. Quota refreshe
 
 - Use **Used** or **Left** to choose how the app shows quota and targets.
 - Choose **Session** or **Weekly** in the quota card. On macOS, the Session view uses the share of weekly quota planned for that session. Using more than planned leaves less for the next session. Unused quota carries forward.
-- On macOS, open **Edit sessions** and choose **Edited days** to set each day’s hours or **Entire week** to use the same hours every day. Use **Work days** to choose which days count toward your plan. The **Work sessions** table shows the quota target at the end of each session.
+- Open **Edit sessions** on macOS or **Schedule → Edit sessions** on Windows. Choose **Edited days** to set each day’s hours or **Entire week** to use one schedule for all seven days. Use **Work days** to choose which days count toward your plan. The **Work sessions** table shows the quota target at the end of each session.
 - If you’re likely to reach a limit, look for a model and effort suggestion under **Next turn**. Pace can also notify you once per target when your recent usage puts it within 30 minutes.
 - Use **Set reset target** to plan for an earlier deadline. Redeem the reset in Codex at the time you choose.
 

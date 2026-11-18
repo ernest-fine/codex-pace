@@ -9,17 +9,27 @@ namespace CodexPace;
 
 internal static class SettingsDialogs
 {
-    private const int LastMinuteOfDay = 1439;
     private static readonly DayOfWeek[] Days =
     [
         DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday,
         DayOfWeek.Friday, DayOfWeek.Saturday, DayOfWeek.Sunday
     ];
 
-    public static async Task<WorkSchedule?> EditSessionsAsync(XamlRoot root, WorkSchedule schedule)
+    public static async Task<WorkSchedule?> EditSessionsAsync(
+        XamlRoot root, WorkSchedule schedule, IReadOnlyList<DayOfWeek> workdays, DateTimeOffset now)
     {
-        var draft = schedule.Entries.OrderBy(session => session.StartMinute).ToList();
+        var draft = new ScheduleDraft(schedule, workdays, now);
         var body = new StackPanel { Spacing = 12 };
+        var editedDays = new ToggleButton { Content = "Edited days", IsChecked = true };
+        var entireWeek = new ToggleButton { Content = "Entire week" };
+        var scope = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        scope.Children.Add(new TextBlock { Text = "Apply to", VerticalAlignment = VerticalAlignment.Center });
+        scope.Children.Add(editedDays);
+        scope.Children.Add(entireWeek);
+        AutomationProperties.SetName(scope, "Apply to");
+        var dayBar = new Grid { ColumnSpacing = 4 };
+        AutomationProperties.SetName(dayBar, "Day");
+        var offDay = Message();
         var fields = new ScrollViewer
         {
             MaxHeight = 300,
@@ -28,36 +38,58 @@ internal static class SettingsDialogs
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
         var add = new Button { Content = "Add session" };
+        var weekNote = Message();
         var error = Message();
+        body.Children.Add(scope);
+        body.Children.Add(dayBar);
+        body.Children.Add(offDay);
         body.Children.Add(fields);
         body.Children.Add(add);
+        body.Children.Add(weekNote);
         body.Children.Add(error);
         var dialog = Create(root, "Edit sessions", "Save schedule", body);
+        var dayButtons = new Dictionary<DayOfWeek, ToggleButton>();
 
-        WorkSchedule Proposed() => WorkSchedule.FromSessions(draft
-            .Select(session => session with { Name = session.Name.Trim() })
-            .OrderBy(session => session.StartMinute));
+        string DayName(DayOfWeek day) => CultureInfo.CurrentCulture.DateTimeFormat.GetDayName(day);
 
         bool Validate()
         {
-            bool valid = Proposed().IsValid;
+            var proposed = draft.ScheduleToSave;
+            bool valid = proposed.IsValid;
             dialog.IsPrimaryButtonEnabled = valid;
-            add.IsEnabled = NextSlot(draft) is not null;
-            SetMessage(error, valid ? null : "Give each session a name and valid hours that don’t overlap.");
+            add.IsEnabled = draft.CanAddSession;
+            string? validation = valid ? null : "Give each session a name and valid hours that don’t overlap.";
+            if (!valid && draft.Scope == ScheduleScope.EditedDays)
+            {
+                var invalid = Days.Where(day => !WorkSchedule.FromSessions(proposed.EntriesOn(day)).IsValid);
+                validation = $"Check {string.Join(", ", invalid.Select(DayName))}. {validation}";
+            }
+            SetMessage(error, validation);
             return valid;
         }
 
-        void Update(Guid id, Func<SessionTemplate, SessionTemplate> update)
+        void Update(Guid id, Func<SessionTemplate, SessionTemplate> update, ScheduleList list)
         {
-            int index = draft.FindIndex(entry => entry.Id == id);
-            if (index < 0) return;
-            draft[index] = update(draft[index]);
+            draft.UpdateSession(id, update, list);
             Validate();
         }
 
         void Render(Guid? focusSession = null)
         {
-            if (draft.Count == 0)
+            bool wholeWeek = draft.Scope == ScheduleScope.EntireWeek;
+            editedDays.IsChecked = !wholeWeek;
+            entireWeek.IsChecked = wholeWeek;
+            dayBar.Visibility = wholeWeek ? Visibility.Collapsed : Visibility.Visible;
+            foreach (var (day, button) in dayButtons) button.IsChecked = day == draft.Day;
+            SetMessage(offDay, !wholeWeek && !workdays.Contains(draft.Day)
+                ? $"{DayName(draft.Day)} is off in Work days." : null);
+            SetMessage(weekNote, wholeWeek
+                ? draft.Sessions.Count == 0 ? "Clears sessions for all days." : "Replaces schedules for all days."
+                : null);
+            dialog.PrimaryButtonText = wholeWeek ? "Apply to entire week" : "Save schedule";
+            var list = draft.ActiveList;
+            var sessions = draft.SessionsIn(list);
+            if (sessions.Count == 0)
             {
                 fields.Content = new TextBlock { Text = "No sessions" };
                 Validate();
@@ -75,9 +107,9 @@ internal static class SettingsDialogs
             Place(grid, new TextBlock { Text = "End" }, 0, 2);
 
             TextBox? focus = null;
-            for (int index = 0; index < draft.Count; index++)
+            for (int index = 0; index < sessions.Count; index++)
             {
-                var session = draft[index];
+                var session = sessions[index];
                 int row = index + 1;
                 grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
                 var name = new TextBox
@@ -94,16 +126,17 @@ internal static class SettingsDialogs
                 };
                 AutomationProperties.SetName(remove, $"Remove session {row}");
                 ToolTipService.SetToolTip(remove, "Remove session");
-                name.TextChanged += (_, _) => Update(session.Id, value => value with { Name = name.Text });
-                start.TimeChanged += (_, _) => Update(session.Id, value => value with { StartMinute = Minutes(start) });
-                end.TimeChanged += (_, _) => Update(session.Id, value => value with { EndMinute = Minutes(end) });
+                name.TextChanged += (_, _) => Update(session.Id, value => value with { Name = name.Text }, list);
+                start.TimeChanged += (_, _) => Update(session.Id, value => value with { StartMinute = Minutes(start) }, list);
+                end.TimeChanged += (_, _) => Update(session.Id, value => value with { EndMinute = Minutes(end) }, list);
                 remove.Click += (_, _) =>
                 {
-                    int removed = draft.FindIndex(entry => entry.Id == session.Id);
+                    int removed = draft.SessionsIn(list).ToList().FindIndex(entry => entry.Id == session.Id);
                     if (removed < 0) return;
-                    draft.RemoveAt(removed);
-                    Render(draft.Count == 0 ? null : draft[Math.Min(removed, draft.Count - 1)].Id);
-                    if (draft.Count == 0) add.Focus(FocusState.Programmatic);
+                    draft.RemoveSession(session.Id, list);
+                    var remaining = draft.Sessions;
+                    Render(remaining.Count == 0 ? null : remaining[Math.Min(removed, remaining.Count - 1)].Id);
+                    if (remaining.Count == 0) add.Focus(FocusState.Programmatic);
                 };
                 Place(grid, name, row, 0);
                 Place(grid, start, row, 1);
@@ -117,22 +150,52 @@ internal static class SettingsDialogs
                 {
                     focus.Focus(FocusState.Programmatic);
                     focus.SelectAll();
+                    focus.StartBringIntoView();
                 };
             }
             fields.Content = grid;
             Validate();
         }
 
+        for (int index = 0; index < Days.Length; index++)
+        {
+            var day = Days[index];
+            dayBar.ColumnDefinitions.Add(new ColumnDefinition());
+            var name = DayName(day);
+            var button = new ToggleButton
+            {
+                Content = CultureInfo.CurrentCulture.DateTimeFormat.GetAbbreviatedDayName(day),
+                HorizontalAlignment = HorizontalAlignment.Stretch,
+                MinWidth = 0,
+                Padding = new Thickness(5, 8, 5, 8)
+            };
+            AutomationProperties.SetName(button, workdays.Contains(day) ? name : $"{name}, off");
+            ToolTipService.SetToolTip(button, workdays.Contains(day) ? name : $"{name} is off in Work days");
+            button.Click += (_, _) =>
+            {
+                draft.SelectDay(day);
+                Render();
+            };
+            dayButtons.Add(day, button);
+            Place(dayBar, button, 0, index);
+        }
+        editedDays.Click += (_, _) =>
+        {
+            draft.SelectScope(ScheduleScope.EditedDays);
+            Render();
+        };
+        entireWeek.Click += (_, _) =>
+        {
+            draft.SelectScope(ScheduleScope.EntireWeek);
+            Render();
+        };
         add.Click += (_, _) =>
         {
-            if (NextSlot(draft) is not { } slot) return;
-            var session = new SessionTemplate(Guid.NewGuid(), $"Session {draft.Count + 1}", slot.Start, slot.End);
-            draft.Add(session);
-            Render(session.Id);
+            if (draft.AddSession() is { } id) Render(id);
         };
         dialog.PrimaryButtonClick += (_, args) => args.Cancel = !Validate();
         Render();
-        return await dialog.ShowAsync() == ContentDialogResult.Primary ? Proposed() : null;
+        return await dialog.ShowAsync() == ContentDialogResult.Primary ? draft.ScheduleToSave : null;
     }
 
     public static async Task<DayOfWeek[]?> EditWorkdaysAsync(XamlRoot root, IReadOnlyList<DayOfWeek> workdays)
@@ -252,7 +315,7 @@ internal static class SettingsDialogs
         var picker = new TimePicker
         {
             ClockIdentifier = "24HourClock",
-            Time = TimeSpan.FromMinutes(Math.Clamp(minutes, 0, LastMinuteOfDay)),
+            Time = TimeSpan.FromMinutes(Math.Clamp(minutes, 0, 1439)),
             MinWidth = 0,
             HorizontalAlignment = HorizontalAlignment.Stretch
         };
@@ -280,21 +343,6 @@ internal static class SettingsDialogs
         Grid.SetRow(element, row);
         Grid.SetColumn(element, column);
         grid.Children.Add(element);
-    }
-
-    private static (int Start, int End)? NextSlot(IReadOnlyList<SessionTemplate> sessions)
-    {
-        if (sessions.Count == 0) return (570, 630);
-
-        (int Start, int End)? lastGap = null;
-        int cursor = 0;
-        foreach (var session in sessions.OrderBy(session => session.StartMinute))
-        {
-            if (cursor < session.StartMinute)
-                lastGap = (cursor, Math.Min(cursor + 60, session.StartMinute));
-            cursor = Math.Max(cursor, session.EndMinute);
-        }
-        return cursor < LastMinuteOfDay ? (cursor, Math.Min(cursor + 60, LastMinuteOfDay)) : lastGap;
     }
 
     private static DateTimeOffset NextMinute(DateTimeOffset instant)
