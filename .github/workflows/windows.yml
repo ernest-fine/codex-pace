@@ -47,6 +47,8 @@ jobs:
           "PACE_OUTPUT=$output" >> $env:GITHUB_ENV
       - name: Verify that tray activation opens and closes the quota card
         run: |
+          $env:CODEX_PACE_TRAY_CHECK_LOG = Join-Path $env:RUNNER_TEMP "Codex-Pace-Tray-Check.log"
+          $started = Get-Date
           $app = Start-Process (Join-Path $env:PACE_OUTPUT "CodexPace.exe") -ArgumentList "--demo", "--check-tray" -WorkingDirectory $env:PACE_OUTPUT -PassThru
           try {
             if (-not $app.WaitForExit(45000)) { throw "The tray quota card check timed out." }
@@ -54,7 +56,12 @@ jobs:
               0 { Write-Output "Tray activation opened and closed the quota card." }
               2 { throw "The tray quota card did not open." }
               3 { throw "The tray quota card did not close." }
-              default { throw "The tray quota card check failed with exit code $($app.ExitCode)." }
+              default {
+                if (Test-Path $env:CODEX_PACE_TRAY_CHECK_LOG) { Get-Content $env:CODEX_PACE_TRAY_CHECK_LOG }
+                Get-WinEvent -FilterHashtable @{ LogName="Application"; StartTime=$started; Id=1000,1026 } -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Message -match "CodexPace" } | Select-Object -First 3 -ExpandProperty Message
+                throw "The tray quota card check failed with exit code $($app.ExitCode)."
+              }
             }
           } finally {
             if (-not $app.HasExited) { Stop-Process -Id $app.Id }
