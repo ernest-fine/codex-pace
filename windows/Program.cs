@@ -149,7 +149,7 @@ internal sealed class PaceApplication
     {
         latestObserved = current.Source == "Codex account" ? current.Quota : null;
         if (current.Quota is { } observed && state.Preferences.ResetTarget is { } target
-            && observed.ResetsAt != target.WindowResetsAt)
+            && !ManualResetTarget.SameWindow(target.WindowResetsAt, observed.ResetsAt))
         {
             state = state with { Preferences = state.Preferences with { ResetTarget = null } };
         }

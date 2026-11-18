@@ -30,6 +30,7 @@ internal static class ScheduleChecks
             ("Session change rejects stale, missing and reset comparisons", SessionDeltaChecks.RejectsUnavailableComparisons),
             ("The normal planner provides the Session change", SessionDeltaChecks.PlannerExposesTheChange),
             ("Fast support requires explicit model capabilities", FastModeChecks.ReadsExplicitModelCapabilities),
+            ("Manual reset target stays active across refreshed timestamps", RetainsManualResetTargetAcrossRefresh),
             ("Recommendation uses the quota left through the reset target", FastModeChecks.UsesQuotaThroughTheResetTarget),
             ("Recommendation ignores the latest model, effort and workload", FastModeChecks.IgnoresRecentModelEffortAndWorkload),
             ("Fast needs enough remaining quota and enough quota per hour", FastModeChecks.RequiresBothKindsOfHeadroomForFast),
@@ -53,6 +54,24 @@ internal static class ScheduleChecks
 
         Console.WriteLine($"{checks.Length} Windows schedule checks passed.");
         return 0;
+    }
+
+    private static void RetainsManualResetTargetAcrossRefresh()
+    {
+        var now = WindowStart.AddHours(2);
+        var target = new ManualResetTarget(now.AddHours(1), Reset);
+        var preferences = JsonSerializer.Deserialize<Preferences>(
+            JsonSerializer.Serialize(new Preferences { ResetTarget = target }))!;
+
+        foreach (int shift in new[] { -1, 0, 1, 5, 6, 7 * 86400 })
+        {
+            var reading = new QuotaSample(now, Reset.AddSeconds(shift), 10080, 28);
+            var telemetry = new Telemetry(reading, null, [], null, [], "Test", null);
+            var pace = Planner.Calculate(telemetry, [], preferences, now).Pace;
+            var expected = Math.Abs(shift) <= 5 ? target.TargetAt : reading.ResetsAt;
+            if (pace?.PlanEndsAt != expected)
+                throw new InvalidOperationException($"Unexpected target after a {shift}s reset timestamp shift.");
+        }
     }
 
     private static void ReadsLegacySchedule()

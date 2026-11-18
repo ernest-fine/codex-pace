@@ -307,7 +307,7 @@ internal sealed class MainWindow : Window
         }
 
         var pace = state.Pace;
-        var existing = preferences.ResetTarget is { } manual && manual.WindowResetsAt == quota.ResetsAt ? manual : null;
+        var existing = preferences.ResetTarget is { } manual && ManualResetTarget.SameWindow(manual.WindowResetsAt, quota.ResetsAt) ? manual : null;
         Set(heroSubtitle, existing is not null && pace?.PlanEndsAt == existing.TargetAt
             ? $"Reset target {Stamp(existing.TargetAt)}"
             : $"Resets {Day(WorkClock.Day(quota.ResetsAt))} at {Time(quota.ResetsAt)}");
@@ -588,14 +588,16 @@ internal sealed class MainWindow : Window
     private async Task EditResetTargetAsync(XamlRoot xamlRoot)
     {
         if (data?.Quota is not { } quota || NextMinute(CurrentTime()) >= quota.ResetsAt) return;
-        var existing = preferences.ResetTarget is { } target && target.WindowResetsAt == quota.ResetsAt
+        var existing = preferences.ResetTarget is { } target && ManualResetTarget.SameWindow(target.WindowResetsAt, quota.ResetsAt)
             ? target.TargetAt : (DateTimeOffset?)null;
         var result = await SettingsDialogs.EditResetTargetAsync(xamlRoot, quota.ResetsAt, existing, CurrentTime);
         if (!result.Applied) return;
         var currentTime = CurrentTime();
-        string? validation = data?.Quota?.ResetsAt != quota.ResetsAt || currentTime >= quota.ResetsAt
+        var currentReset = data?.Quota?.ResetsAt ?? DateTimeOffset.MinValue;
+        string? validation = currentTime >= currentReset || !ManualResetTarget.SameWindow(quota.ResetsAt, currentReset)
             ? "The quota window changed. Open the reset target for the current window."
-            : result.Target is { } saved && saved <= currentTime ? "Choose a reset target in the future." : null;
+            : result.Target is { } saved && (saved <= currentTime || saved >= currentReset)
+                ? "Choose a future time before the scheduled reset." : null;
         if (validation is not null)
         {
             await new ContentDialog { XamlRoot = xamlRoot, Title = "Reset target", Content = validation, CloseButtonText = "OK" }.ShowAsync();
@@ -603,7 +605,7 @@ internal sealed class MainWindow : Window
         }
         PreferencesChanged?.Invoke(preferences with
         {
-            ResetTarget = result.Target is { } deadline ? new ManualResetTarget(deadline, quota.ResetsAt) : null,
+            ResetTarget = result.Target is { } deadline ? new ManualResetTarget(deadline, currentReset) : null,
         });
     }
 

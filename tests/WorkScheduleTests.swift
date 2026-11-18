@@ -15,7 +15,23 @@ struct WorkScheduleTests {
         warnsAtTheLimitAndSkipsStaleReadings()
         sessionChangeUsesTheLatestReadingWithinTheSession()
         sessionChangeSkipsMissingStaleAndResetReadings()
-        print("11 pacing and schedule tests passed")
+        try retainsManualResetTargetAcrossRefresh()
+        print("12 pacing and schedule tests passed")
+    }
+
+    static func retainsManualResetTargetAcrossRefresh() throws {
+        let now = Date(timeIntervalSince1970: 1_795_002_000)
+        let reset = now.addingTimeInterval(2 * 86_400)
+        let target = ManualResetTarget(targetAt: now.addingTimeInterval(3600), windowResetsAt: reset)
+        let restored = try JSONDecoder().decode(ManualResetTarget.self, from: JSONEncoder().encode(target))
+
+        for shift: TimeInterval in [-1, 0, 1, 5, 6, 7 * 86_400] {
+            let reading = QuotaSample(observedAt: now, resetsAt: reset.addingTimeInterval(shift),
+                                      windowMinutes: 10080, usedPercent: 28)
+            let expected = abs(shift) <= 5 ? target.targetAt : reading.resetsAt
+            let pace = calculatePace(quota: reading, history: [], now: now, resetTarget: restored)
+            precondition(pace.planEndsAt == expected, "Unexpected target after a \(shift)s reset timestamp shift")
+        }
     }
 
     static func migratesSharedSessions() throws {
