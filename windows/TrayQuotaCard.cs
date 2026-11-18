@@ -135,6 +135,8 @@ internal sealed class TrayQuotaCard : IDisposable
         _ = DwmSetWindowAttribute(handle, 33, ref cornerPreference, sizeof(int));
     }
 
+    public bool IsVisible => !disposed && window.AppWindow.IsVisible;
+
     public void Toggle(TrayQuotaReading reading, RectInt32 anchor)
     {
         if (disposed) return;

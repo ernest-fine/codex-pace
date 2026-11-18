@@ -36,7 +36,8 @@ public partial class App : Application
             return;
         }
 
-        var demo = Environment.GetCommandLineArgs().Skip(1).Contains("--demo", StringComparer.Ordinal);
+        var arguments = Environment.GetCommandLineArgs().Skip(1).ToArray();
+        bool demo = arguments.Contains("--demo", StringComparer.Ordinal);
         host = new PaceApplication(demo, ExitHost);
         var dispatcher = DispatcherQueue.GetForCurrentThread();
         activationWait = ThreadPool.RegisterWaitForSingleObject(
@@ -45,6 +46,7 @@ public partial class App : Application
             null,
             Timeout.Infinite,
             executeOnlyOnce: false);
+        if (demo && arguments.Contains("--check-tray", StringComparer.Ordinal)) _ = host.CheckTrayAsync();
     }
 
     private void ExitHost()

@@ -84,6 +84,8 @@ internal sealed class TrayIcon : IDisposable
         Register();
     }
 
+    public void SelectForDemo() => SendMessageW(window, CallbackMessage, 0, (nint)((IconId << 16) | Select));
+
     public void SetStatus(TrayQuotaReading reading, bool refreshing)
     {
         if (disposed) return;

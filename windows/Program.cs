@@ -68,6 +68,30 @@ internal sealed class PaceApplication
         _ = RefreshAsync(force: false);
     }
 
+    public async Task CheckTrayAsync()
+    {
+        tray.SelectForDemo();
+        if (!await WaitForTrayCardAsync(visible: true))
+            Environment.ExitCode = 2;
+        else
+        {
+            tray.SelectForDemo();
+            if (!await WaitForTrayCardAsync(visible: false)) Environment.ExitCode = 3;
+        }
+        Quit();
+    }
+
+    private async Task<bool> WaitForTrayCardAsync(bool visible)
+    {
+        var timeout = System.Diagnostics.Stopwatch.StartNew();
+        while (timeout.Elapsed < TimeSpan.FromSeconds(10))
+        {
+            if ((quotaCard?.IsVisible == true) == visible) return true;
+            await Task.Delay(50, shutdown.Token);
+        }
+        return false;
+    }
+
     public void OpenDashboard()
     {
         if (closing) return;

@@ -45,7 +45,21 @@ jobs:
           dotnet publish windows/CodexPace.csproj -c Release -r "win-$env:ARCH" --self-contained true "-p:Platform=$env:PLATFORM" -o $output
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           "PACE_OUTPUT=$output" >> $env:GITHUB_ENV
-      - name: Open the sample dashboard and check the tray card
+      - name: Verify that tray activation opens and closes the quota card
+        run: |
+          $app = Start-Process (Join-Path $env:PACE_OUTPUT "CodexPace.exe") -ArgumentList "--demo", "--check-tray" -WorkingDirectory $env:PACE_OUTPUT -PassThru
+          try {
+            if (-not $app.WaitForExit(45000)) { throw "The tray quota card check timed out." }
+            switch ($app.ExitCode) {
+              0 { Write-Output "Tray activation opened and closed the quota card." }
+              2 { throw "The tray quota card did not open." }
+              3 { throw "The tray quota card did not close." }
+              default { throw "The tray quota card check failed with exit code $($app.ExitCode)." }
+            }
+          } finally {
+            if (-not $app.HasExited) { Stop-Process -Id $app.Id }
+          }
+      - name: Open the sample dashboard
         run: |
           $app = Start-Process (Join-Path $env:PACE_OUTPUT "CodexPace.exe") -ArgumentList "--demo" -WorkingDirectory $env:PACE_OUTPUT -PassThru
           try {
@@ -57,48 +71,6 @@ jobs:
             } until (($app.MainWindowHandle -ne 0 -and $app.Responding) -or (Get-Date) -ge $deadline)
             if ($app.MainWindowHandle -eq 0 -or -not $app.Responding) { throw "Codex Pace did not open a responsive window." }
             if ($env:ARCH -eq "x64") {
-              Add-Type -TypeDefinition @'
-          using System;
-          using System.Runtime.InteropServices;
-          public static class PaceTrayCheck {
-              [DllImport("user32.dll", SetLastError = true)]
-              public static extern bool PostMessageW(IntPtr handle, uint message, UIntPtr wParam, IntPtr lParam);
-              [DllImport("user32.dll", CharSet = CharSet.Unicode, ExactSpelling = true)]
-              public static extern IntPtr FindWindowW(string windowClass, string windowName);
-              [DllImport("user32.dll")]
-              public static extern uint GetWindowThreadProcessId(IntPtr handle, out uint processId);
-              [DllImport("user32.dll")]
-              public static extern bool IsWindowVisible(IntPtr handle);
-          }
-          '@
-              $deadline = (Get-Date).AddSeconds(12)
-              [uint32] $owner = 0
-              do {
-                $dashboard = [PaceTrayCheck]::FindWindowW([NullString]::Value, "Codex Pace")
-                if ($dashboard -ne 0) {
-                  [PaceTrayCheck]::GetWindowThreadProcessId($dashboard, [ref] $owner) | Out-Null
-                } else { Start-Sleep -Milliseconds 250 }
-              } until ($dashboard -ne 0 -or (Get-Date) -ge $deadline)
-              if ($dashboard -eq 0 -or $owner -ne $app.Id) { throw "Couldn’t find the demo dashboard in process $($app.Id)." }
-              # WM_APP + 1 is the shell callback. The high word identifies tray icon 1.
-              if (-not [PaceTrayCheck]::PostMessageW($dashboard, 0x8001, [UIntPtr]::Zero, [IntPtr]0x00010400)) {
-                $lastError = [System.Runtime.InteropServices.Marshal]::GetLastWin32Error()
-                throw "Couldn’t activate the demo tray icon (Win32 error $lastError)."
-              }
-              $deadline = (Get-Date).AddSeconds(12)
-              do {
-                Start-Sleep -Milliseconds 250
-                $card = [PaceTrayCheck]::FindWindowW([NullString]::Value, "Codex Pace quota")
-              } until (($card -ne 0 -and [PaceTrayCheck]::IsWindowVisible($card)) -or (Get-Date) -ge $deadline)
-              if ($card -eq 0 -or -not [PaceTrayCheck]::IsWindowVisible($card)) { throw "The tray quota card did not appear." }
-              if (-not [PaceTrayCheck]::PostMessageW($dashboard, 0x8001, [UIntPtr]::Zero, [IntPtr]0x00010400)) {
-                throw "Couldn’t close the demo tray card from the tray icon."
-              }
-              $deadline = (Get-Date).AddSeconds(12)
-              do { Start-Sleep -Milliseconds 250 }
-              until ((-not [PaceTrayCheck]::IsWindowVisible($card)) -or (Get-Date) -ge $deadline)
-              if ([PaceTrayCheck]::IsWindowVisible($card)) { throw "The tray quota card did not close." }
-              Write-Output "Verified that tray activation opens and closes the quota card."
               try {
                 Add-Type -AssemblyName System.Drawing.Common
                 Add-Type -TypeDefinition @'
