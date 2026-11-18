@@ -27,7 +27,8 @@ final class TrackerStore: ObservableObject {
     private var resetTarget: ManualResetTarget?
 
     var manualResetTargetDate: Date? {
-        guard let resetTarget, resetTarget.windowResetsAt == data.quota?.resetsAt, data.pace != nil else {
+        guard let resetTarget, let quota = data.quota, data.pace != nil,
+              ManualResetTarget.sameWindow(resetTarget.windowResetsAt, quota.resetsAt) else {
             return nil
         }
         return resetTarget.targetAt
@@ -90,11 +91,12 @@ final class TrackerStore: ObservableObject {
 
     func changeResetTarget(_ date: Date?, for expectedReset: Date) -> Bool {
         let now = currentTime
-        guard let quota = telemetry?.quota, quota.resetsAt == expectedReset, expectedReset > now else {
+        guard let quota = telemetry?.quota, quota.resetsAt > now,
+              ManualResetTarget.sameWindow(expectedReset, quota.resetsAt) else {
             return false
         }
         if let date {
-            let target = ManualResetTarget(targetAt: date, windowResetsAt: expectedReset)
+            let target = ManualResetTarget(targetAt: date, windowResetsAt: quota.resetsAt)
             guard target.activeDeadline(for: quota, now: now) != nil else { return false }
             saveResetTarget(target)
         } else {
@@ -149,7 +151,7 @@ final class TrackerStore: ObservableObject {
             let now = Date()
             latestObservedQuota = result.source == "Codex account" ? result.quota : nil
             if let target = resetTarget, let observed = result.quota,
-               observed.resetsAt != target.windowResetsAt {
+               !ManualResetTarget.sameWindow(target.windowResetsAt, observed.resetsAt) {
                 saveResetTarget(nil)
             }
             let savedQuota = history.filter { $0.observedAt <= now }.max {

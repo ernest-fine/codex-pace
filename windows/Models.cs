@@ -73,7 +73,12 @@ internal sealed record WorkSchedule(int MorningStart, int MorningEnd, int Aftern
     }
 }
 
-internal sealed record ManualResetTarget(DateTimeOffset TargetAt, DateTimeOffset WindowResetsAt);
+internal sealed record ManualResetTarget(DateTimeOffset TargetAt, DateTimeOffset WindowResetsAt)
+{
+    // Account and local readings can differ by a few seconds for the same weekly reset.
+    public static bool SameWindow(DateTimeOffset expectedReset, DateTimeOffset observedReset) =>
+        Math.Abs((observedReset - expectedReset).TotalSeconds) <= 5;
+}
 
 internal sealed record Preferences
 {
