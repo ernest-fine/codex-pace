@@ -131,8 +131,13 @@ struct ManualResetTarget: Codable, Equatable, Sendable {
     let targetAt: Date
     let windowResetsAt: Date
 
+    static func sameWindow(_ expectedReset: Date, _ observedReset: Date) -> Bool {
+        // Account and local readings can differ by a few seconds for the same weekly reset.
+        abs(observedReset.timeIntervalSince(expectedReset)) <= 5
+    }
+
     func activeDeadline(for quota: QuotaSample, now: Date) -> Date? {
-        guard windowResetsAt == quota.resetsAt, now < targetAt, targetAt < quota.resetsAt else { return nil }
+        guard Self.sameWindow(windowResetsAt, quota.resetsAt), now < targetAt, targetAt < quota.resetsAt else { return nil }
         return targetAt
     }
 }

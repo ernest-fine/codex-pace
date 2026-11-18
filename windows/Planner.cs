@@ -25,7 +25,7 @@ internal static class Planner
         if (quota is not null && quota.ResetsAt > now)
         {
             var target = preferences.ResetTarget;
-            if (target is not null && target.WindowResetsAt == quota.ResetsAt &&
+            if (target is not null && ManualResetTarget.SameWindow(target.WindowResetsAt, quota.ResetsAt) &&
                 target.TargetAt > now && target.TargetAt < quota.ResetsAt)
             {
                 deadline = target.TargetAt;
