@@ -10,5 +10,6 @@
     <Compile Include="../../windows/Models.cs" Link="Models.cs" />
     <Compile Include="../../windows/Planner.cs" Link="Planner.cs" />
     <Compile Include="../../windows/ScheduleDraft.cs" Link="ScheduleDraft.cs" />
+    <Compile Include="../../windows/TrayQuotaReading.cs" Link="TrayQuotaReading.cs" />
   </ItemGroup>
 </Project>

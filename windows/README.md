@@ -9,7 +9,7 @@ Codex Pace uses WinUI 3 on Windows 11 and follows Windows light or dark mode. Se
 ## Using the tracker
 
 - The session headline shows how much of the opening session allowance you’ve used beside the target by now. The bar is green through the target, amber up to 10% over it, and red above that. The allowance includes unused quota from earlier shifts.
-- The tray icon’s tooltip shows the session, pace advice, and usage and target percentages. Double-click it to open the dashboard. Closing the window leaves the tracker active. Right-click the tray icon and choose **Quit** to exit.
+- The tray icon shows a compact quota bar. Hover for the actual and target percentages, or click for the quota card. It follows **Session / Weekly** and **Used / Left** in the dashboard. Right-click the icon to open the dashboard or quit.
 - Open **Schedule → Edit sessions**. Choose **Edited days** to set different hours for each day, or **Entire week** to apply one schedule to all seven days. Use **Work days** to choose which days count toward your quota plan.
 - **Set reset target** sets a planning deadline. Redeem the reset in Codex.
 - **Weekly quota** puts actual usage beside the target by now. The progress bar marks that target for the selected work days.

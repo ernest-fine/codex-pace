@@ -67,6 +67,9 @@ internal sealed class MainWindow : Window
     public event Action? RefreshRequested;
     public event Action<Preferences>? PreferencesChanged;
     public event Action? TestNotificationRequested;
+    public event Action? QuotaFocusChanged;
+
+    public bool ShowsWeeklyQuota => showWeekly;
 
     public MainWindow(Preferences preferences)
     {
@@ -194,7 +197,11 @@ internal sealed class MainWindow : Window
         showWeekly = weekly;
         sessionMode.IsChecked = !weekly;
         weeklyMode.IsChecked = weekly;
-        if (changed) RenderHero();
+        if (changed)
+        {
+            RenderHero();
+            QuotaFocusChanged?.Invoke();
+        }
     }
 
     private void RenderHero()

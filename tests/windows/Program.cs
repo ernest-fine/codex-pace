@@ -18,6 +18,13 @@ internal static class ScheduleChecks
             ("Day and week drafts stay separate while switching scope", KeepsScopeDrafts),
             ("Quota targets use enabled days and each day's durations", PlansPerDayDurations),
             ("Quota windows clip sessions before calculating shares", ClipsQuotaWindow),
+            ("Weekly tray readings follow quota orientation and plan targets", TrayReadingChecks.WeeklyOrientations),
+            ("Session tray readings use the current session allowance", TrayReadingChecks.SessionOrientations),
+            ("Stale weekly tray readings retain values with an unknown tone", TrayReadingChecks.StaleReadings),
+            ("Off-hours and unavailable session tray readings omit numbers", TrayReadingChecks.UnavailableSessions),
+            ("Missing tray targets remain absent", TrayReadingChecks.MissingTargets),
+            ("Tray display geometry clamps while values retain overspend", TrayReadingChecks.ClampedGeometry),
+            ("Tray colors compare used quota independently of orientation", TrayReadingChecks.PaceTones),
         ];
 
         foreach (var (name, check) in checks)

@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using WinRT.Interop;
+using Windows.Graphics;
 
 namespace CodexPace;
 
@@ -15,6 +16,7 @@ internal sealed class PaceApplication
     private readonly TelemetryReader reader = new();
     private readonly LocalStateStore store = new();
     private readonly bool demo;
+    private TrayQuotaCard? quotaCard;
     private LocalState state;
     private Telemetry? telemetry;
     private QuotaSample? latestObserved;
@@ -34,12 +36,18 @@ internal sealed class PaceApplication
         var dispatcher = window.DispatcherQueue;
         tray = new TrayIcon(WindowNative.GetWindowHandle(window), dispatcher);
         tray.OpenRequested += OpenDashboard;
+        tray.QuotaRequested += ToggleTrayQuota;
         tray.RefreshRequested += () => _ = RefreshAsync(force: true);
         tray.TestNotificationRequested += TestNotification;
         tray.QuitRequested += () => Quit();
         window.RefreshRequested += () => _ = RefreshAsync(force: true);
         window.PreferencesChanged += ChangePreferences;
         window.TestNotificationRequested += TestNotification;
+        window.QuotaFocusChanged += () =>
+        {
+            var now = Now;
+            RenderTray(CurrentData(now), now);
+        };
         window.AppWindow.Closing += (_, args) =>
         {
             if (!closing && tray.IsRegistered)
@@ -62,6 +70,7 @@ internal sealed class PaceApplication
     public void OpenDashboard()
     {
         if (closing) return;
+        quotaCard?.Hide();
         if (!window.AppWindow.IsVisible) window.AppWindow.Show();
         if (window.AppWindow.Presenter is OverlappedPresenter { State: OverlappedPresenterState.Minimized } presenter)
             presenter.Restore();
@@ -147,7 +156,25 @@ internal sealed class PaceApplication
         if (storageError != null)
             data = data with { Error = string.Join(" ", new[] { data.Error, storageError }.Where(message => message != null)) };
         window.Render(data, state.Preferences, now, refreshing);
-        tray.SetStatus(Planner.TrayCaption(data, now, state.Preferences.ShowUsed), refreshing);
+        RenderTray(data, now);
+    }
+
+    private TrayQuotaReading TrayReading(DashboardData data, DateTimeOffset now) =>
+        TrayQuotaReading.Make(data, now, window.ShowsWeeklyQuota, state.Preferences.ShowUsed);
+
+    private void RenderTray(DashboardData data, DateTimeOffset now)
+    {
+        var reading = TrayReading(data, now);
+        tray.SetStatus(reading, refreshing);
+        quotaCard?.Update(reading);
+    }
+
+    private void ToggleTrayQuota(RectInt32 anchor)
+    {
+        if (closing) return;
+        var now = Now;
+        quotaCard ??= new TrayQuotaCard();
+        quotaCard.Toggle(TrayReading(CurrentData(now), now), anchor);
     }
 
     private void ConsiderWarning(DateTimeOffset now)
@@ -206,6 +233,7 @@ internal sealed class PaceApplication
         closing = true;
         timer.Stop();
         shutdown.Cancel();
+        quotaCard?.Dispose();
         tray.Dispose();
         if (!windowAlreadyClosed) window.Close();
         exit();

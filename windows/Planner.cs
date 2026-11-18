@@ -99,31 +99,6 @@ internal static class Planner
             $"At this pace, you could reach {target} in about {minutes} min.", deadline, session) with { Title = "Slow down on Codex" };
     }
 
-    public static string TrayCaption(DashboardData data, DateTimeOffset now, bool showUsed)
-    {
-        var pace = data.Pace;
-        if (pace is null) return "Codex Pace";
-        var session = pace.CurrentSession;
-        if (session is null || now < session.Start || now >= session.End)
-        {
-            return "Codex · Off hours";
-        }
-
-        var action = data.Guidance?.Action ?? SessionAction.AwaitingReadings;
-        string title = $"{session.MenuLabel} · {ActionLabel(action)}";
-        if (action == SessionAction.CheckUsage || !HasFreshQuota(data.Quota, now)
-            || QuotaDisplay.SessionUsage(pace) is not { } usage)
-        {
-            return title;
-        }
-
-        title += $" · {QuotaDisplay.OrientedPercent(usage.Fraction * 100, showUsed)}";
-        if (pace.SessionTarget is not double target || pace.SessionBudget is not double budget) return title;
-
-        double targetPercent = target / budget * 100;
-        return double.IsFinite(targetPercent) ? $"{title} / {QuotaDisplay.OrientedPercent(targetPercent, showUsed)}" : title;
-    }
-
     public static string ActionLabel(SessionAction action) => action switch
     {
         SessionAction.Pause => "Pause",

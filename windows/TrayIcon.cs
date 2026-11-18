@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
+using Windows.Graphics;
 
 namespace CodexPace;
 
@@ -20,6 +21,7 @@ internal sealed class TrayIcon : IDisposable
     private const uint NotifyShowTip = 0x80;
     private const uint ContextMenu = 0x007B; // WM_CONTEXTMENU
     private const uint DoubleClick = 0x0203; // WM_LBUTTONDBLCLK
+    private const uint LeftClick = 0x0202; // WM_LBUTTONUP
     private const uint RightClick = 0x0205; // WM_RBUTTONUP
     private const uint Select = 0x0400; // NIN_SELECT
     private const uint KeySelect = 0x0401; // NIN_KEYSELECT
@@ -40,6 +42,11 @@ internal sealed class TrayIcon : IDisposable
     private readonly nint smallIcon;
     private readonly nint largeIcon;
     private readonly bool subclassInstalled;
+    private readonly DispatcherQueueTimer clickTimer;
+    private nint meterIcon;
+    private (double? Amount, double? Marker, TrayQuotaTone Tone, int Size)? meterState;
+    private RectInt32 pendingBounds;
+    private long ignoreSelectUntil;
     private string caption = "Codex Pace";
     private bool refreshing;
     private bool registered;
@@ -48,6 +55,7 @@ internal sealed class TrayIcon : IDisposable
     private bool showingMenu;
 
     public event Action? OpenRequested;
+    public event Action<RectInt32>? QuotaRequested;
     public event Action? RefreshRequested;
     public event Action? TestNotificationRequested;
     public event Action? QuitRequested;
@@ -58,6 +66,14 @@ internal sealed class TrayIcon : IDisposable
     {
         this.window = window;
         this.dispatcher = dispatcher;
+        clickTimer = dispatcher.CreateTimer();
+        clickTimer.IsRepeating = false;
+        clickTimer.Interval = TimeSpan.FromMilliseconds(GetDoubleClickTime());
+        clickTimer.Tick += (_, _) =>
+        {
+            clickTimer.Stop();
+            if (!disposed) QuotaRequested?.Invoke(pendingBounds);
+        };
         callback = WindowProcedure;
         if (Environment.ProcessPath is { } executable)
             ExtractIconExW(executable, 0, out largeIcon, out smallIcon, 1);
@@ -68,16 +84,18 @@ internal sealed class TrayIcon : IDisposable
         Register();
     }
 
-    public void SetStatus(string status, bool refreshing)
+    public void SetStatus(TrayQuotaReading reading, bool refreshing)
     {
-        caption = Limit(status, 127);
+        if (disposed) return;
+        caption = Limit(reading.Tooltip, 127);
         this.refreshing = refreshing;
+        UpdateMeter(reading);
         if (!registered)
         {
             Register();
             return;
         }
-        var data = CreateNotificationData(NotifyTip | NotifyShowTip);
+        var data = CreateNotificationData(NotifyTip | NotifyShowTip | NotifyIcon);
         if (!Shell_NotifyIconW(IconModify, ref data))
         {
             registered = false;
@@ -101,6 +119,7 @@ internal sealed class TrayIcon : IDisposable
     {
         if (disposed) return;
         disposed = true;
+        clickTimer.Stop();
         if (registered)
         {
             var data = CreateNotificationData(0);
@@ -108,6 +127,7 @@ internal sealed class TrayIcon : IDisposable
             registered = false;
         }
         if (subclassInstalled) RemoveWindowSubclass(window, callback, IconId);
+        if (meterIcon != 0) DestroyIcon(meterIcon);
         if (smallIcon != 0) DestroyIcon(smallIcon);
         if (largeIcon != 0 && largeIcon != smallIcon) DestroyIcon(largeIcon);
     }
@@ -129,7 +149,7 @@ internal sealed class TrayIcon : IDisposable
         Id = IconId,
         Flags = flags,
         Callback = CallbackMessage,
-        Icon = icon,
+        Icon = meterIcon != 0 ? meterIcon : icon,
         ToolTip = caption,
         Info = string.Empty,
         InfoTitle = string.Empty
@@ -148,19 +168,71 @@ internal sealed class TrayIcon : IDisposable
         {
             // The low word contains the shell event even when the high word contains the version 4 icon ID.
             var trayEvent = (uint)((nuint)lParam & 0xffff);
-            dispatcher.TryEnqueue(() => HandleTrayEvent(trayEvent));
+            dispatcher.TryEnqueue(() => HandleTrayEvent(trayEvent, wParam));
             return 0;
         }
         return DefSubclassProc(handle, message, wParam, lParam);
     }
 
-    private void HandleTrayEvent(uint trayEvent)
+    private void HandleTrayEvent(uint trayEvent, nuint anchor)
     {
         if (disposed) return;
         if (trayEvent == ContextMenu || (!usesVersion4 && trayEvent == RightClick))
+        {
+            clickTimer.Stop();
             ShowMenu();
-        else if (trayEvent is Select or KeySelect or BalloonClick or DoubleClick)
+        }
+        else if (trayEvent is BalloonClick or DoubleClick)
+        {
+            clickTimer.Stop();
+            ignoreSelectUntil = Environment.TickCount64 + GetDoubleClickTime();
             OpenRequested?.Invoke();
+        }
+        else if (trayEvent == KeySelect)
+        {
+            clickTimer.Stop();
+            QuotaRequested?.Invoke(IconBounds(anchor));
+        }
+        else if ((trayEvent == Select || (!usesVersion4 && trayEvent == LeftClick))
+            && Environment.TickCount64 >= ignoreSelectUntil)
+        {
+            pendingBounds = IconBounds(anchor);
+            clickTimer.Stop();
+            clickTimer.Start();
+        }
+    }
+
+    private void UpdateMeter(TrayQuotaReading reading)
+    {
+        int size = Math.Clamp(GetSystemMetrics(49), 16, 64); // SM_CXSMICON
+        var nextState = (reading.Amount, reading.Marker, reading.Tone, size);
+        if (meterState == nextState) return;
+        nint nextIcon = TrayMeterIcon.Create(reading, size);
+        var previousIcon = meterIcon;
+        meterIcon = nextIcon;
+        // The shell copies the supplied HICON when adding or updating the notification-area icon.
+        if (registered)
+        {
+            var data = CreateNotificationData(NotifyIcon);
+            if (!Shell_NotifyIconW(IconModify, ref data)) registered = false;
+        }
+        if (previousIcon != 0) DestroyIcon(previousIcon);
+        meterState = nextIcon != 0 || reading.Amount is null ? nextState : null;
+    }
+
+    private RectInt32 IconBounds(nuint anchor)
+    {
+        var identifier = new NotifyIconIdentifier
+        {
+            Size = (uint)Marshal.SizeOf<NotifyIconIdentifier>(), Window = window, Id = IconId
+        };
+        if (Shell_NotifyIconGetRect(ref identifier, out var bounds) >= 0)
+            return new RectInt32(bounds.Left, bounds.Top, bounds.Right - bounds.Left, bounds.Bottom - bounds.Top);
+
+        var point = new Point { X = unchecked((short)(anchor & 0xffff)), Y = unchecked((short)((anchor >> 16) & 0xffff)) };
+        if (!usesVersion4 || (point.X == -1 && point.Y == -1)) GetCursorPos(out point);
+        int size = Math.Max(16, GetSystemMetrics(49));
+        return new RectInt32(point.X - size / 2, point.Y - size / 2, size, size);
     }
 
     private void ShowMenu()
@@ -320,4 +392,10 @@ internal sealed class TrayIcon : IDisposable
     [DllImport("user32.dll", ExactSpelling = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool PostMessageW(nint window, uint message, nuint wParam, nint lParam);
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern uint GetDoubleClickTime();
+
+    [DllImport("user32.dll", ExactSpelling = true)]
+    private static extern int GetSystemMetrics(int index);
 }
