@@ -28,10 +28,10 @@ struct DashboardData {
     var isDemo: Bool
     var error: String?
     var budgetWarning: BudgetWarning? = nil
-    var fastModeRecommendation: String? = nil
+    var hasModelRecommendation = false
 
     var showsRecommendation: Bool {
-        budgetWarning != nil || recommendationTone == .critical || fastModeRecommendation != nil
+        budgetWarning != nil || recommendationTone == .critical || hasModelRecommendation
     }
 }
 
@@ -148,7 +148,8 @@ struct Dashboard: View {
                 if data.quota == nil, let shortQuota = data.shortQuota {
                     ShortQuotaSummary(quota: shortQuota)
                 }
-                if data.showsRecommendation && (heroFocus == .session || data.budgetWarning?.isWeekly != false) {
+                if data.showsRecommendation &&
+                    (data.hasModelRecommendation || heroFocus == .session || data.budgetWarning?.isWeekly != false) {
                     GraphiteDivider()
                     HeroRecommendation(data: data)
                 }
@@ -581,11 +582,11 @@ private struct HeroRecommendation: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(data.budgetWarning != nil || data.fastModeRecommendation != nil ? "Next turn" : data.status)
+            Text(data.budgetWarning != nil || data.hasModelRecommendation ? "Next turn" : data.status)
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Graphite.muted)
                 .fixedSize()
-            Text(data.fastModeRecommendation.map { "\(data.recommendation) · \($0)" } ?? data.recommendation)
+            Text(data.recommendation)
                 .font(.system(size: 18, weight: .semibold))
                 .fixedSize(horizontal: false, vertical: true)
         }
