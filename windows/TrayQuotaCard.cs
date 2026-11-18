@@ -21,6 +21,8 @@ namespace CodexPace;
 internal sealed class TrayQuotaCard : IDisposable
 {
     private const double CardWidth = 310;
+    private const int ColorButtonFace = 15;
+    private const int ColorHighlight = 13;
     private readonly Window window = new() { Title = "Codex Pace quota" };
     private readonly ContentControl root = new()
     {
@@ -304,8 +306,8 @@ internal sealed class TrayQuotaCard : IDisposable
         {
             background.Color = systemColors.GetColorValue(UIColorType.Background);
             foreground.Color = secondary.Color = outline.Color = systemColors.GetColorValue(UIColorType.Foreground);
-            track.Color = systemColors.GetColorValue(UIColorType.ButtonFace);
-            tone.Color = systemColors.GetColorValue(UIColorType.Highlight);
+            track.Color = SystemColor(ColorButtonFace);
+            tone.Color = SystemColor(ColorHighlight);
         }
         else
         {
@@ -351,6 +353,15 @@ internal sealed class TrayQuotaCard : IDisposable
 
     private static Color ColorFor(int rgb) =>
         Color.FromArgb(255, (byte)(rgb >> 16), (byte)(rgb >> 8), (byte)rgb);
+
+    private static Color SystemColor(int index)
+    {
+        uint rgb = GetSysColor(index);
+        return Color.FromArgb(255, (byte)rgb, (byte)(rgb >> 8), (byte)(rgb >> 16));
+    }
+
+    [DllImport("user32.dll")]
+    private static extern uint GetSysColor(int index);
 
     [StructLayout(LayoutKind.Sequential)]
     private struct NativePoint { public int X, Y; }

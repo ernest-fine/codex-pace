@@ -120,7 +120,10 @@ internal sealed record BudgetWarning(string Key, string Title, string Recommenda
 internal sealed record DashboardData(
     QuotaSample? Quota, QuotaSample? ShortQuota, Pace? Pace, SessionGuidance? Guidance, string Status,
     string Recommendation, string RecommendationDetail, string RecentActivity, string Source, string? Error,
-    BudgetWarning? Warning);
+    BudgetWarning? Warning)
+{
+    public SessionQuotaDelta? SessionDelta { get; init; }
+}
 
 internal static class QuotaDisplay
 {

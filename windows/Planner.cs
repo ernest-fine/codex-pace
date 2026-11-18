@@ -39,7 +39,10 @@ internal static class Planner
         var (status, recommendation, detail, warning) = Recommend(quota, pace, deadline, activity, models, now);
         return new DashboardData(
             quota, shortQuota, pace, guidance, status, recommendation, detail, ActivityCaption(activity, models),
-            telemetry?.Source ?? "Connecting to Codex", telemetry?.Error, warning);
+            telemetry?.Source ?? "Connecting to Codex", telemetry?.Error, warning)
+        {
+            SessionDelta = SessionQuotaDelta.Calculate(quota, pace, history, now)
+        };
     }
 
     public static IEnumerable<BudgetWarning> ImmediateWarnings(QuotaSample? quota, Pace? pace, DateTimeOffset now)

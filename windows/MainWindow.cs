@@ -254,7 +254,8 @@ internal sealed class MainWindow : Window
         {
             double? target = pace.SessionTarget / pace.SessionBudget * 100;
             string prefix = pace.SessionStartInferred ? "Estimated " : "";
-            readout.Children.Add(Readings($"{prefix}Session quota {kind}", Oriented(usage.Fraction * 100), target));
+            readout.Children.Add(Readings($"{prefix}Session quota {kind}", Oriented(usage.Fraction * 100), target,
+                state.SessionDelta?.Caption(preferences.ShowUsed)));
             readout.Children.Add(Progress($"Session quota {kind}", usage.Fraction * 100, target));
         }
         else
@@ -352,6 +353,7 @@ internal sealed class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
+        AutomationProperties.SetName(forecast, "Weekly pacing details");
         forecast.Expanding += (_, _) => weeklyDetailsExpanded = true;
         forecast.Collapsed += (_, _) => weeklyDetailsExpanded = false;
         heroContent.Children.Add(forecast);
@@ -400,9 +402,10 @@ internal sealed class MainWindow : Window
         return note;
     }
 
-    private FrameworkElement Readings(string usageLabel, string usage, double? target)
+    private FrameworkElement Readings(string usageLabel, string usage, double? target, string? change = null)
     {
         var main = Stack(2, Text(usageLabel, 16, secondary: true), Text(usage, 54, strong: true));
+        if (change is not null) main.Children.Add(Text(change, 14, secondary: true));
         if (target is not { } value || !double.IsFinite(value)) return main;
         var label = Text($"Target {(preferences.ShowUsed ? "used" : "left")} by now", 16, secondary: true);
         var number = Text(Oriented(value), 36, strong: true);

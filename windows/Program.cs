@@ -21,6 +21,7 @@ internal sealed class PaceApplication
     private Telemetry? telemetry;
     private QuotaSample? latestObserved;
     private bool refreshing;
+    private DateTimeOffset lastRefresh = DateTimeOffset.MinValue;
     private bool closing;
     private string? storageError;
 
@@ -58,9 +59,9 @@ internal sealed class PaceApplication
         };
         window.Closed += (_, _) => Quit(windowAlreadyClosed: true);
         timer = dispatcher.CreateTimer();
-        timer.Interval = TimeSpan.FromMinutes(2);
+        timer.Interval = TimeSpan.FromSeconds(30);
         timer.IsRepeating = true;
-        timer.Tick += (_, _) => _ = RefreshAsync(force: false);
+        timer.Tick += (_, _) => RefreshOnSchedule();
         Render();
         window.Activate();
         timer.Start();
@@ -77,9 +78,20 @@ internal sealed class PaceApplication
         window.Activate();
     }
 
+    private void RefreshOnSchedule()
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (now - lastRefresh >= TimeSpan.FromMinutes(2)
+            || (!demo && CurrentData(now).Pace?.CurrentSession is not null))
+        {
+            _ = RefreshAsync(force: false);
+        }
+    }
+
     private async Task RefreshAsync(bool force)
     {
         if (refreshing || closing) return;
+        lastRefresh = DateTimeOffset.UtcNow;
         refreshing = true;
         TimeZoneInfo.ClearCachedData();
         Render();

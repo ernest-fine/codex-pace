@@ -25,6 +25,10 @@ internal static class ScheduleChecks
             ("Missing tray targets remain absent", TrayReadingChecks.MissingTargets),
             ("Tray display geometry clamps while values retain overspend", TrayReadingChecks.ClampedGeometry),
             ("Tray colors compare used quota independently of orientation", TrayReadingChecks.PaceTones),
+            ("Session change uses the latest distinct in-session reading", SessionDeltaChecks.UsesLatestDistinctReading),
+            ("Session remaining change stops at zero", SessionDeltaChecks.CapsRemainingChangeAtZero),
+            ("Session change rejects stale, missing and reset comparisons", SessionDeltaChecks.RejectsUnavailableComparisons),
+            ("The normal planner provides the Session change", SessionDeltaChecks.PlannerExposesTheChange),
         ];
 
         foreach (var (name, check) in checks)
