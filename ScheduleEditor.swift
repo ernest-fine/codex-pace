@@ -61,6 +61,10 @@ final class ScheduleDraft: ObservableObject {
         replaceSessions(sessions(in: list).filter { $0.id != id }, in: list)
     }
 
+    func applyTemplate(_ template: SavedSessionTemplate) {
+        replaceSessions(template.sessions, in: sessionList)
+    }
+
     func setSessionField<Value>(
         _ keyPath: WritableKeyPath<SessionTemplate, Value>, to value: Value, id: UUID, in list: SessionList
     ) {
@@ -96,6 +100,7 @@ final class ScheduleDraft: ObservableObject {
 
 struct ScheduleEditor: View {
     @ObservedObject var draft: ScheduleDraft
+    @Binding var sessionTemplates: [SavedSessionTemplate]
     let workdays: Set<Workday>
     let cancel: () -> Void
     let save: (WorkSchedule) -> Void
@@ -147,13 +152,22 @@ struct ScheduleEditor: View {
                 .id(draft.sessionList)
             }
 
-            Button {
-                addedSession = draft.addSession()
-            } label: {
-                Label("Add session", systemImage: "plus")
+            HStack(spacing: 8) {
+                Button {
+                    addedSession = draft.addSession()
+                } label: {
+                    Label("Add session", systemImage: "plus")
+                }
+                .graphiteButton(.quiet)
+                .disabled(!draft.canAddSession)
+
+                Spacer(minLength: 0)
+
+                SessionTemplateControls(templates: $sessionTemplates, sessions: draft.sessions) { template in
+                    focusedName = nil
+                    draft.applyTemplate(template)
+                }
             }
-            .graphiteButton(.quiet)
-            .disabled(!draft.canAddSession)
 
             if draft.applyScope == .entireWeek {
                 Text(draft.sessions.isEmpty ? "Clears sessions for all days." : "Replaces schedules for all days.")
@@ -281,6 +295,76 @@ struct ScheduleEditor: View {
         let schedule = draft.scheduleToSave
         guard schedule.isValid else { return }
         save(schedule)
+    }
+}
+
+private struct SessionTemplateControls: View {
+    @Binding var templates: [SavedSessionTemplate]
+    let sessions: [SessionTemplate]
+    let apply: (SavedSessionTemplate) -> Void
+    @ViewState private var isNaming = false
+    @ViewState private var name = ""
+    @FocusState private var nameFocused: Bool
+
+    var body: some View {
+        Button("Save as template…") {
+            name = ""
+            isNaming = true
+        }
+        .graphiteButton(.quiet)
+        .disabled(!SavedSessionTemplate.canSave(sessions))
+        .popover(isPresented: $isNaming, arrowEdge: .top) {
+            nameForm
+        }
+
+        Menu("Apply template") {
+            ForEach(templates, id: \.name) { template in
+                Button(template.name) { apply(template) }
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .disabled(templates.isEmpty)
+    }
+
+    private var nameExists: Bool {
+        let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        return templates.contains { $0.name.caseInsensitiveCompare(trimmed) == .orderedSame }
+    }
+
+    private var nameForm: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Save as template")
+                .font(.headline)
+            TextField("Template name", text: $name)
+                .graphiteField()
+                .focused($nameFocused)
+                .onSubmit(saveTemplate)
+            if nameExists {
+                Text("A template with this name already exists.")
+                    .font(.caption)
+                    .foregroundStyle(Graphite.risk)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { isNaming = false }
+                    .graphiteButton(.quiet)
+                Button("Save template", action: saveTemplate)
+                    .graphiteButton(.primary)
+                    .disabled(nameExists || name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(14)
+        .frame(width: 285)
+        .background(Graphite.panel)
+        .foregroundStyle(Graphite.ink)
+        .onAppear { nameFocused = true }
+    }
+
+    private func saveTemplate() {
+        guard !nameExists, let template = SavedSessionTemplate(name: name, sessions: sessions) else { return }
+        templates.append(template)
+        isNaming = false
     }
 }
 

@@ -62,6 +62,9 @@ internal sealed class ScheduleDraft
     public void RemoveSession(Guid id, ScheduleList list) =>
         Replace(SessionsIn(list).Where(session => session.Id != id).ToArray(), list);
 
+    public void ApplyTemplate(SavedSessionTemplate template) =>
+        Replace(template.Sessions.ToArray(), ActiveList);
+
     public Guid? AddSession()
     {
         if (NextSlot(Sessions) is not { } slot) return null;

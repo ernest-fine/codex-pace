@@ -13,6 +13,18 @@ internal sealed record Telemetry(
 
 internal sealed record SessionTemplate(Guid Id, string Name, int StartMinute, int EndMinute);
 
+internal sealed record SavedSessionTemplate(string Name, SessionTemplate[] Sessions)
+{
+    [JsonIgnore]
+    public bool IsValid => !string.IsNullOrWhiteSpace(Name) && Sessions is not null && CanSave(Sessions);
+
+    public static bool CanSave(IReadOnlyList<SessionTemplate> sessions) =>
+        sessions.Count > 0 && WorkSchedule.FromSessions(sessions).IsValid;
+
+    public static SavedSessionTemplate? Create(string name, IReadOnlyList<SessionTemplate> sessions) =>
+        !string.IsNullOrWhiteSpace(name) && CanSave(sessions) ? new(name.Trim(), sessions.ToArray()) : null;
+}
+
 internal sealed record WorkSchedule(int MorningStart, int MorningEnd, int AfternoonStart, int AfternoonEnd)
 {
     public static Guid MorningId { get; } = new("00000000-0000-4000-8000-000000000001");
@@ -86,6 +98,7 @@ internal sealed record Preferences
         [DayOfWeek.Monday, DayOfWeek.Tuesday, DayOfWeek.Wednesday, DayOfWeek.Thursday, DayOfWeek.Friday]);
 
     public WorkSchedule Schedule { get; init; } = WorkSchedule.Standard;
+    public SavedSessionTemplate[] SessionTemplates { get; init; } = [];
     public DayOfWeek[] Workdays { get; init; } = [.. StandardWorkdays];
     public ManualResetTarget? ResetTarget { get; init; }
     public bool ShowUsed { get; init; }

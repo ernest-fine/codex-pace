@@ -7,6 +7,7 @@ struct WorkScheduleTests {
         try migratesSharedSessions()
         try keepsDayEditsIndependent()
         try keepsDayAndWeekDraftsSeparate()
+        try restoresAndAppliesSessionTemplateSnapshots()
         usesDayHoursForQuotaTargets()
         carriesOverOverspendWithJustTheCurrentReading()
         carriesOverUnderspendAndStopsAtTheEndTarget()
@@ -16,7 +17,7 @@ struct WorkScheduleTests {
         sessionChangeUsesTheLatestReadingWithinTheSession()
         sessionChangeSkipsMissingStaleAndResetReadings()
         try retainsManualResetTargetAcrossRefresh()
-        print("12 pacing and schedule tests passed")
+        print("13 pacing and schedule tests passed")
     }
 
     static func retainsManualResetTargetAcrossRefresh() throws {
@@ -113,6 +114,34 @@ struct WorkScheduleTests {
         precondition(pace.currentSession?.template.name == "Monday work")
         precondition(pace.targetPercent == 20)
         precondition(pace.remainingWorkHours == 4)
+    }
+
+    static func restoresAndAppliesSessionTemplateSnapshots() throws {
+        let template = SavedSessionTemplate(name: "  Late shift  ", sessions: [session("Focus", 660, 780)])!
+        let restored = try JSONDecoder().decode(SavedSessionTemplate.self, from: JSONEncoder().encode(template))
+        precondition(restored == template && restored.name == "Late shift")
+        precondition(SavedSessionTemplate(name: " ", sessions: template.sessions) == nil)
+        precondition(SavedSessionTemplate(name: "Empty", sessions: []) == nil)
+        precondition(SavedSessionTemplate(
+            name: "Overlap", sessions: template.sessions + [session("Overlap", 700, 800)]
+        ) == nil)
+
+        let draft = ScheduleDraft()
+        let original = WorkSchedule.standard
+        draft.begin(original, workdays: [.tuesday])
+        draft.applyTemplate(restored)
+        precondition(draft.scheduleToSave.sessions(on: .tuesday) == restored.sessions)
+        precondition(draft.scheduleToSave.sessions(on: .monday) == original.sessions(on: .monday))
+
+        draft.setSessionField(\.name, to: "Edited", id: restored.sessions[0].id, in: draft.sessionList)
+        draft.selectScope(.entireWeek)
+        draft.applyTemplate(restored)
+        precondition(Workday.allCases.allSatisfy { draft.scheduleToSave.sessions(on: $0) == restored.sessions })
+        draft.selectScope(.editedDays)
+        precondition(draft.sessions.map(\.name) == ["Edited"])
+        precondition(restored.sessions.map(\.name) == ["Focus"])
+        draft.begin(original, workdays: [.tuesday])
+        precondition(draft.sessions == original.sessions(on: .tuesday))
     }
 
     static func session(_ name: String, _ start: Int, _ end: Int) -> SessionTemplate {

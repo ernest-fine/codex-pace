@@ -302,6 +302,8 @@ internal sealed class LocalStateStore
                     preferences = preferences with
                     {
                         Schedule = preferences.Schedule is { IsValid: true } ? preferences.Schedule : WorkSchedule.Standard,
+                        SessionTemplates = (preferences.SessionTemplates ?? []).Where(template => template is { IsValid: true })
+                            .DistinctBy(template => template.Name, StringComparer.OrdinalIgnoreCase).ToArray(),
                         Workdays = preferences.Workdays?.Where(day => Enum.IsDefined(day)).Distinct().ToArray()
                             ?? Preferences.StandardWorkdays.ToArray(),
                     };

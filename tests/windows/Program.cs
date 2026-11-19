@@ -16,6 +16,7 @@ internal static class ScheduleChecks
             ("Per-day and empty overrides survive local JSON storage", RoundTripsDayOverrides),
             ("Applying one shared schedule replaces day overrides", AppliesEntireWeek),
             ("Day and week drafts stay separate while switching scope", KeepsScopeDrafts),
+            ("Saved session templates are reusable snapshots of a single session layout", AppliesSessionTemplates),
             ("Quota targets use enabled days and each day's durations", PlansPerDayDurations),
             ("Quota windows clip sessions before calculating shares", ClipsQuotaWindow),
             ("Weekly tray readings follow quota orientation and plan targets", TrayReadingChecks.WeeklyOrientations),
@@ -216,6 +217,36 @@ internal static class ScheduleChecks
         Equal(570, individual.EntriesOn(DayOfWeek.Tuesday).Single().StartMinute, "Late field update keeps its original day");
         Equal("Tuesday draft", individual.EntriesOn(DayOfWeek.Tuesday).Single().Name, "Tuesday name remains");
         Equal("Original", original.EntriesOn(DayOfWeek.Tuesday).Single().Name, "Draft edits do not mutate saved schedule");
+    }
+
+    private static void AppliesSessionTemplates()
+    {
+        var original = JsonSerializer.Deserialize<Preferences>("{}")!;
+        Equal(0, original.SessionTemplates.Length, "Existing preferences start with an empty template library");
+        var session = Session(3, "Focus", 660, 780);
+        var template = SavedSessionTemplate.Create("  Late shift  ", [session])!;
+        Assert(SavedSessionTemplate.Create(" ", [session]) is null, "Blank template names are rejected");
+        Assert(SavedSessionTemplate.Create("Empty", []) is null, "Empty layouts are rejected");
+        Assert(SavedSessionTemplate.Create("Overlap", [session, Session(4, "Overlap", 700, 800)]) is null,
+            "Invalid layouts are rejected");
+        var saved = original with { SessionTemplates = [template] };
+        var restored = JsonSerializer.Deserialize<Preferences>(JsonSerializer.Serialize(saved))!.SessionTemplates.Single();
+        Equal("Late shift", restored.Name, "Template name survives storage");
+        Equal(session, restored.Sessions.Single(), "Session details survive storage");
+
+        var draft = new ScheduleDraft(original.Schedule, [DayOfWeek.Tuesday], WindowStart);
+        draft.ApplyTemplate(restored);
+        Equal(session, draft.ScheduleToSave.EntriesOn(DayOfWeek.Tuesday).Single(), "Template replaces the selected day");
+        Assert(draft.ScheduleToSave.EntriesOn(DayOfWeek.Monday).SequenceEqual(original.Schedule.EntriesOn(DayOfWeek.Monday)),
+            "Another day's schedule remains unchanged");
+        draft.UpdateSession(session.Id, entry => entry with { Name = "Edited" }, draft.ActiveList);
+        draft.SelectScope(ScheduleScope.EntireWeek);
+        draft.ApplyTemplate(restored);
+        Assert(Enum.GetValues<DayOfWeek>().All(day => draft.ScheduleToSave.EntriesOn(day).Single() == session),
+            "Whole-week mode uses the stored sessions on every day");
+        draft.SelectScope(ScheduleScope.EditedDays);
+        Equal("Edited", draft.Sessions.Single().Name, "Weekly apply leaves the day draft alone");
+        Equal(session, restored.Sessions.Single(), "Editing the draft leaves the saved template alone");
     }
 
     private static void ClipsQuotaWindow()

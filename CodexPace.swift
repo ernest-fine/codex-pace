@@ -14,6 +14,13 @@ final class TrackerStore: ObservableObject {
             updateDashboard()
         }
     }
+    @Published var sessionTemplates: [SavedSessionTemplate] = [] {
+        didSet {
+            if demo == nil, let encoded = try? JSONEncoder().encode(sessionTemplates) {
+                defaults.set(encoded, forKey: "sessionTemplates")
+            }
+        }
+    }
 
     private let defaults = UserDefaults.standard
     private let notifications = BudgetNotifications()
@@ -41,6 +48,10 @@ final class TrackerStore: ObservableObject {
         }
         let initialSchedule = savedSchedule.flatMap { $0.isValid ? $0 : nil } ?? .standard
         schedule = initialSchedule
+        if demo == nil, let stored = defaults.data(forKey: "sessionTemplates"),
+           let templates = try? JSONDecoder().decode([SavedSessionTemplate].self, from: stored) {
+            sessionTemplates = templates.filter(\.isValid)
+        }
         if demo == nil, let stored = defaults.data(forKey: "quotaHistory") {
             history = (try? JSONDecoder().decode([QuotaSample].self, from: stored)) ?? []
         }
@@ -252,7 +263,7 @@ struct CodexPaceApp: App {
         )
         Window("Codex Pace", id: "dashboard") {
             Dashboard(
-                data: store.data, schedule: $store.schedule,
+                data: store.data, schedule: $store.schedule, sessionTemplates: $store.sessionTemplates,
                 workdays: store.workdays, changeWorkdays: store.changeWorkdays,
                 manualResetTarget: store.manualResetTargetDate, changeResetTarget: store.changeResetTarget,
                 refresh: store.refresh, targetDisplay: $targetDisplay, heroFocus: $heroFocus
