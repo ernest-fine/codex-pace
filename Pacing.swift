@@ -49,6 +49,25 @@ struct SessionTemplate: Codable, Equatable, Sendable, Identifiable {
     static let afternoonID = UUID(uuidString: "00000000-0000-4000-8000-000000000002")!
 }
 
+struct SavedSessionTemplate: Codable, Equatable, Sendable {
+    let name: String
+    let sessions: [SessionTemplate]
+
+    init?(name: String, sessions: [SessionTemplate]) {
+        self.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.sessions = sessions
+        guard isValid else { return nil }
+    }
+
+    var isValid: Bool {
+        !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && Self.canSave(sessions)
+    }
+
+    static func canSave(_ sessions: [SessionTemplate]) -> Bool {
+        !sessions.isEmpty && WorkSchedule(sessions: sessions).isValid
+    }
+}
+
 struct WorkSchedule: Codable, Equatable, Sendable {
     private let defaultSessions: [SessionTemplate]
     private var daySessions: [Workday: [SessionTemplate]] = [:]

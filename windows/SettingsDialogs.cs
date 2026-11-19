@@ -16,9 +16,10 @@ internal static class SettingsDialogs
     ];
 
     public static async Task<WorkSchedule?> EditSessionsAsync(
-        XamlRoot root, WorkSchedule schedule, IReadOnlyList<DayOfWeek> workdays, DateTimeOffset now)
+        XamlRoot root, Preferences preferences, DateTimeOffset now, Action<SavedSessionTemplate[]> saveTemplates)
     {
-        var draft = new ScheduleDraft(schedule, workdays, now);
+        var workdays = preferences.Workdays;
+        var draft = new ScheduleDraft(preferences.Schedule, workdays, now);
         var body = new StackPanel { Spacing = 12 };
         var editedDays = new ToggleButton { Content = "Edited days", IsChecked = true };
         var entireWeek = new ToggleButton { Content = "Entire week" };
@@ -38,13 +39,18 @@ internal static class SettingsDialogs
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto
         };
         var add = new Button { Content = "Add session" };
+        var templates = new SessionTemplateControls(preferences.SessionTemplates, () => draft.Sessions, saveTemplates);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        actions.Children.Add(add);
+        actions.Children.Add(templates.SaveButton);
+        actions.Children.Add(templates.ApplyButton);
         var weekNote = Message();
         var error = Message();
         body.Children.Add(scope);
         body.Children.Add(dayBar);
         body.Children.Add(offDay);
         body.Children.Add(fields);
-        body.Children.Add(add);
+        body.Children.Add(actions);
         body.Children.Add(weekNote);
         body.Children.Add(error);
         var dialog = Create(root, "Edit sessions", "Save schedule", body);
@@ -58,6 +64,7 @@ internal static class SettingsDialogs
             bool valid = proposed.IsValid;
             dialog.IsPrimaryButtonEnabled = valid;
             add.IsEnabled = draft.CanAddSession;
+            templates.UpdateAvailability();
             string? validation = valid ? null : "Give each session a name and valid hours that don’t overlap.";
             if (!valid && draft.Scope == ScheduleScope.EditedDays)
             {
@@ -192,6 +199,11 @@ internal static class SettingsDialogs
         add.Click += (_, _) =>
         {
             if (draft.AddSession() is { } id) Render(id);
+        };
+        templates.TemplateSelected += template =>
+        {
+            draft.ApplyTemplate(template);
+            Render();
         };
         dialog.PrimaryButtonClick += (_, args) => args.Cancel = !Validate();
         Render();

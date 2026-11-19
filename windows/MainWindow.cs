@@ -575,7 +575,8 @@ internal sealed class MainWindow : Window
 
     private async Task EditSessionsAsync(XamlRoot xamlRoot)
     {
-        var schedule = await SettingsDialogs.EditSessionsAsync(xamlRoot, preferences.Schedule, preferences.Workdays, CurrentTime());
+        var schedule = await SettingsDialogs.EditSessionsAsync(xamlRoot, preferences, CurrentTime(),
+            templates => PreferencesChanged?.Invoke(preferences with { SessionTemplates = templates }));
         if (schedule is not null) PreferencesChanged?.Invoke(preferences with { Schedule = schedule });
     }
 

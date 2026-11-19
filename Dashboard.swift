@@ -48,6 +48,7 @@ struct Dashboard: View {
 
     let data: DashboardData
     @Binding var schedule: WorkSchedule
+    @Binding var sessionTemplates: [SavedSessionTemplate]
     let workdays: Set<Workday>
     let changeWorkdays: (Set<Workday>) -> Void
     let manualResetTarget: Date?
@@ -106,7 +107,8 @@ struct Dashboard: View {
     private func editorContent(_ editor: Editor) -> some View {
         switch editor {
         case .sessions:
-            ScheduleEditor(draft: sessionsDraft, workdays: workdays, cancel: { activeEditor = nil }) {
+            ScheduleEditor(draft: sessionsDraft, sessionTemplates: $sessionTemplates,
+                           workdays: workdays, cancel: { activeEditor = nil }) {
                 schedule = $0
                 activeEditor = nil
             }
