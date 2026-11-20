@@ -1,6 +1,7 @@
 import Foundation
 
 private let effortOrder = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]
+private let configuredFastTradeoffCostRatio = ProcessInfo.processInfo.environment["CODEX_PACE_FAST_TRADEOFF_COST_RATIO"]
 
 func effortName(_ effort: String, model: String?) -> String {
     if effort == "low", model?.hasSuffix("-astra") == true { return "Light" }
@@ -13,7 +14,7 @@ private func modelName(_ id: String, in models: [ModelOption]) -> String {
 }
 
 private func quotaRecommendation(
-    quota: QuotaSample?, pace: Pace?, models: [ModelOption], now: Date
+    quota: QuotaSample?, pace: Pace?, models: [ModelOption], now: Date, fastTradeoffCostRatio: String?
 ) -> (setting: String, detail: String)? {
     guard let quota, quota.resetsAt > now, (0..<100).contains(quota.usedPercent),
           (0...45 * 60).contains(now.timeIntervalSince(quota.observedAt)),
@@ -31,8 +32,19 @@ private func quotaRecommendation(
             ?? models.first(where: \.isDefault) ?? models.first else { return nil }
 
     let allowed = effortOrder.prefix(through: effortOrder.firstIndex(of: effort) ?? 0)
-    let level = allowed.last(where: model.efforts.contains) ?? model.defaultEffort ?? model.efforts.first
-    let speed = model.supportsFastMode == true ? (left >= 30 && rate >= 12 ? "Fast" : "Standard") : nil
+    let standardEffort = allowed.last(where: model.efforts.contains) ?? model.defaultEffort ?? model.efforts.first
+    let supportsFast = model.supportsFastMode == true
+    let lowerEffort = standardEffort.flatMap { standard in
+        effortOrder.firstIndex(of: standard).flatMap { index in
+            effortOrder.prefix(upTo: index).last(where: model.efforts.contains)
+        }
+    }
+    // Compare lower effort at Fast with higher effort at Standard, normalized to 1.
+    let configuredRatio = fastTradeoffCostRatio.flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
+    let estimatedFastCost = configuredRatio.flatMap { $0.isFinite && $0 > 0 ? $0 : nil } ?? 1
+    let useFast = supportsFast && left >= 30 && rate >= 12 && (lowerEffort == nil || estimatedFastCost < 1)
+    let level = useFast ? lowerEffort ?? standardEffort : standardEffort
+    let speed = supportsFast ? (useFast ? "Fast" : "Standard") : nil
     let settings = [model.name, level.map { effortName($0, model: model.id) }, speed]
         .compactMap { $0 }.joined(separator: " · ")
     let detail = "Based on \(DashboardFormat.percent(left)) of weekly quota left, or \(DashboardFormat.rate(rate)) before reset."
@@ -47,7 +59,8 @@ func dashboardData(
     isDemo: Bool,
     schedule: WorkSchedule = .standard,
     resetTarget: ManualResetTarget? = nil,
-    workdays: Set<Workday> = Workday.standard
+    workdays: Set<Workday> = Workday.standard,
+    fastTradeoffCostRatio: String? = configuredFastTradeoffCostRatio
 ) -> DashboardData {
     let models = telemetry?.models ?? []
     let activity = telemetry?.activity
@@ -166,7 +179,9 @@ func dashboardData(
         )
     }
 
-    let modelAdvice = quotaRecommendation(quota: quota, pace: pace, models: models, now: now)
+    let modelAdvice = quotaRecommendation(
+        quota: quota, pace: pace, models: models, now: now, fastTradeoffCostRatio: fastTradeoffCostRatio
+    )
 
     return DashboardData(
         quota: quota, pace: pace,

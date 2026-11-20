@@ -37,12 +37,39 @@ internal static class FastModeChecks
         Equal<bool?>(null, ModelSpeedCapabilities.Merge([unknown], [cache with { Id = "another-model" }]).Single().SupportsFastMode);
     }
 
+    public static void ComparesEffortAndSpeedCosts()
+    {
+        Equal("Use Astra · Ultra · Standard", Calculate(used: 70, deadlineHour: 13).Recommendation);
+        Equal("Use Astra · Ultra · Standard", Calculate(used: 70, deadlineHour: 13, fastTradeoffCostRatio: "1").Recommendation);
+        Equal("Use Astra · Ultra · Standard", Calculate(used: 70, deadlineHour: 13, fastTradeoffCostRatio: "1.01").Recommendation);
+        Equal("Use Astra · Max · Fast", Calculate(used: 70, deadlineHour: 13, fastTradeoffCostRatio: " 0.99 ").Recommendation);
+
+        var skipsMax = Astra with { Efforts = ["ultra", "high", "medium"] };
+        Equal("Use Astra · High · Fast", Calculate(used: 70, deadlineHour: 13, available: [skipsMax],
+            fastTradeoffCostRatio: "0.9").Recommendation);
+    }
+
+    public static void DefaultsInvalidEstimatesToEqualCost()
+    {
+        foreach (string invalid in new[] { "unknown", "0", "-1", "NaN", "Infinity", "0,9" })
+            Equal("Use Astra · Ultra · Standard", Calculate(used: 70, deadlineHour: 13, fastTradeoffCostRatio: invalid).Recommendation);
+    }
+
+    public static void KeepsFastWhenThereIsNoComparableEffort()
+    {
+        var onlyUltra = Astra with { Efforts = ["ultra"], DefaultEffort = "ultra" };
+        Equal("Use Astra · Ultra · Fast", Calculate(used: 70, deadlineHour: 13, available: [onlyUltra]).Recommendation);
+
+        var unknown = Astra with { Efforts = ["adaptive"], DefaultEffort = "adaptive" };
+        Equal("Use Astra · Adaptive · Fast", Calculate(used: 70, deadlineHour: 13, available: [unknown]).Recommendation);
+    }
+
     public static void UsesQuotaThroughTheResetTarget()
     {
         var manual = Calculate(used: 51.7, deadlineHour: 13, previousUsed: 51.2);
         if (manual.Pace?.SessionRoomToTarget is not < 0 || manual.Warning is null)
             throw new InvalidOperationException("The fixture should exceed the session slice before the manual reset.");
-        Equal("Use Astra · Ultra · Fast", manual.Recommendation);
+        Equal("Use Astra · Ultra · Standard", manual.Recommendation);
         Equal(true, manual.HasModelRecommendation);
 
         var scheduled = Calculate(used: 51.7, previousUsed: 51.2);
@@ -53,7 +80,7 @@ internal static class FastModeChecks
     {
         var heavy = new Activity(Now, "gpt-6.2-sol", "max", 8, 800_000);
         var light = new Activity(Now, Luna.Id, "low", 1, 3_000);
-        const string expected = "Use Astra · Ultra · Fast";
+        const string expected = "Use Astra · Ultra · Standard";
         Equal(expected, Calculate(used: 51.7, deadlineHour: 13, activity: heavy).Recommendation);
         Equal(expected, Calculate(used: 51.7, deadlineHour: 13, activity: light).Recommendation);
         Equal(expected, Calculate(used: 51.7, deadlineHour: 13).Recommendation);
@@ -61,9 +88,9 @@ internal static class FastModeChecks
 
     public static void RequiresBothKindsOfHeadroomForFast()
     {
-        Equal("Use Astra · Ultra · Fast", Calculate(used: 70, deadlineHour: 13).Recommendation);
-        Equal("Use Astra · Ultra · Standard", Calculate(used: 71, deadlineHour: 12).Recommendation);
-        Equal("Use Astra · Ultra · Standard", Calculate(used: 60, deadlineHour: 14).Recommendation);
+        Equal("Use Astra · Max · Fast", Calculate(used: 70, deadlineHour: 13, fastTradeoffCostRatio: "0.9").Recommendation);
+        Equal("Use Astra · Ultra · Standard", Calculate(used: 71, deadlineHour: 12, fastTradeoffCostRatio: "0.9").Recommendation);
+        Equal("Use Astra · Ultra · Standard", Calculate(used: 60, deadlineHour: 14, fastTradeoffCostRatio: "0.9").Recommendation);
         Equal("Use Astra · Max · Standard", Calculate(used: 75, deadlineHour: 14).Recommendation);
         Equal("Use Luna · Low · Standard", Calculate(used: 98, deadlineHour: 13).Recommendation);
     }
@@ -71,9 +98,13 @@ internal static class FastModeChecks
     public static void RespectsAvailableModelSettings()
     {
         var limited = Astra with { Efforts = ["low", "max"], SupportsFastMode = false };
-        var result = Calculate(used: 50, deadlineHour: 13, available: [limited]);
+        var result = Calculate(used: 50, deadlineHour: 13, available: [limited], fastTradeoffCostRatio: "0.9");
         Equal("Use Astra · Max", result.Recommendation);
         Equal(true, result.HasModelRecommendation);
+
+        var unknownFast = limited with { SupportsFastMode = null };
+        Equal("Use Astra · Max", Calculate(used: 50, deadlineHour: 13, available: [unknownFast],
+            fastTradeoffCostRatio: "0.9").Recommendation);
     }
 
     public static void SkipsUnavailableOrExhaustedQuota()
@@ -86,7 +117,7 @@ internal static class FastModeChecks
 
     private static DashboardData Calculate(double used, int? deadlineHour = null, double? previousUsed = null,
         DateTimeOffset? observedAt = null, Activity? activity = null, IReadOnlyList<ModelOption>? available = null,
-        DayOfWeek[]? workdays = null)
+        DayOfWeek[]? workdays = null, string fastTradeoffCostRatio = "")
     {
         var quota = new QuotaSample(observedAt ?? Now, Reset, 10080, used);
         QuotaSample[] history = previousUsed is { } before
@@ -101,7 +132,7 @@ internal static class FastModeChecks
             Workdays = workdays ?? [.. Preferences.StandardWorkdays],
             ResetTarget = deadlineHour is { } resetHour ? new(WorkClock.At(Monday, resetHour * 60), Reset) : null
         };
-        return Planner.Calculate(telemetry, history, preferences, Now);
+        return Planner.Calculate(telemetry, history, preferences, Now, fastTradeoffCostRatio);
     }
 
     private static ModelOption Model(bool? supportsFast) =>
