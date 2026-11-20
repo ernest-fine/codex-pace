@@ -363,17 +363,30 @@ private struct CurrentSessionContent: View {
     private func sessionReadings(_ pace: Pace, session: WorkSession) -> some View {
         let progress = pace.sessionProgress(showsRemaining: targetDisplay == .left)
         let shownPercent = DashboardFormat.percent(progress.map { 100 * $0.displayedAmount })
+        let carryoverCredit = DashboardFormat.carryoverCredit(progress)
         let targetPercent = progress.flatMap(\.displayedTarget).map { DashboardFormat.percent(100 * $0) }
         let comparison = shiftEndComparison(for: session, quota: quota, now: now)
 
         return VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .bottom, spacing: 16) {
-                    QuotaReading(label: "Session quota \(targetDisplay.rawValue)", percent: shownPercent, size: 54)
+                    if let carryoverCredit {
+                        QuotaReading(label: "Carryover credit", percent: carryoverCredit, size: 54)
+                            .help("\(shownPercent) net used")
+                            .accessibilityHint("\(shownPercent) net used.")
+                    } else {
+                        QuotaReading(label: "Session quota \(targetDisplay.rawValue)", percent: shownPercent, size: 54)
+                    }
                     Spacer(minLength: 0)
                     if let targetPercent {
                         QuotaReading(label: "Target \(targetDisplay.rawValue) by now", percent: targetPercent, size: 36, alignment: .trailing)
                     }
+                }
+                if carryoverCredit != nil {
+                    Text("Extra quota from earlier sessions, measured against this session’s scheduled quota.")
+                        .font(.system(size: 14))
+                        .foregroundStyle(Graphite.muted)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 if let progress, let change = pace.sessionUsageChange {
                     let previous = progress.displayedFraction(forUsed: progress.used - change / 100)
@@ -382,7 +395,10 @@ private struct CurrentSessionContent: View {
                     if difference != 0 {
                         let sign = difference > 0 ? "+" : "−"
                         let amount = abs(difference).formatted(.number.precision(.fractionLength(0...1)))
-                        Text("\(sign)\(amount)% of session quota since last reading")
+                        let caption = carryoverCredit != nil && difference > 0
+                            ? "\(amount)% of session quota used since last reading"
+                            : "\(sign)\(amount)% of session quota since last reading"
+                        Text(caption)
                             .font(.system(size: 14).monospacedDigit())
                             .foregroundStyle(Graphite.muted)
                     }
@@ -391,12 +407,12 @@ private struct CurrentSessionContent: View {
 
             if let progress {
                 let kind = targetDisplay.rawValue
+                let reading = carryoverCredit ?? "\(shownPercent) \(kind)"
                 QuotaUsageBar(progress: progress, thickness: 10)
                     .accessibilityRepresentation {
                         ProgressView(value: progress.barFraction, total: 1)
-                            .accessibilityLabel("Session quota \(kind)")
-                            .accessibilityValue(targetPercent.map { "\(shownPercent) \(kind), \($0) target by now" }
-                                ?? "\(shownPercent) \(kind)")
+                            .accessibilityLabel(carryoverCredit == nil ? "Session quota \(kind)" : "Carryover credit")
+                            .accessibilityValue(targetPercent.map { "\(reading), \($0) target by now" } ?? reading)
                     }
             }
 
@@ -474,7 +490,7 @@ private struct QuotaUsageBar: View {
                     .fill(Graphite.track)
                     .frame(height: thickness)
                 Capsule()
-                    .fill(paceColor ?? progress.level.color)
+                    .fill(paceColor ?? progress.fillColor)
                     .frame(width: width * progress.barFraction, height: thickness)
                 if let target = progress.markerFraction {
                     let marker = width * target
@@ -732,7 +748,7 @@ private struct WeeklyQuotaContent: View {
                 }
             }
 
-            QuotaUsageBar(progress: progress, thickness: 10, paceColor: action == .keepPace ? Graphite.onPace : nil)
+            QuotaUsageBar(progress: progress, thickness: 10, paceColor: action == .keepPace ? Graphite.quotaUsage : nil)
                 .accessibilityRepresentation {
                     ProgressView(value: min(100, max(0, actual)), total: 100)
                         .accessibilityLabel("Weekly allowance \(targetDisplay.rawValue)")
@@ -1349,9 +1365,13 @@ enum DashboardFormat {
     static func percent(_ value: Double?) -> String {
         value.map {
             // Hide the minus sign when the percentage rounds to zero.
-            let amount = (-0.05...0).contains($0) ? 0 : $0
+            let amount = (-QuotaProgress.zeroDisplayThreshold...0).contains($0) ? 0 : $0
             return (amount / 100).formatted(.percent.precision(.fractionLength(0 ... 1)))
         } ?? "—"
+    }
+
+    static func carryoverCredit(_ progress: QuotaProgress?) -> String? {
+        progress.flatMap(\.carryoverCredit).map { percent(100 * $0) }
     }
 
     static func weeklyTarget(for pace: Pace?) -> Double? {

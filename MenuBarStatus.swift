@@ -10,6 +10,9 @@ struct MenuBarSummary {
 
     var label: String {
         guard let progress else { return "Codex Pace" }
+        if let credit = DashboardFormat.carryoverCredit(progress) {
+            return "\(credit) credit"
+        }
         let actual = DashboardFormat.percent(100 * progress.displayedAmount)
         let figures = progress.displayedTarget.map {
             "\(actual) / \(DashboardFormat.percent(100 * $0))"
@@ -20,7 +23,9 @@ struct MenuBarSummary {
     var title: String {
         guard let progress else { return period }
         let actual = DashboardFormat.percent(100 * progress.displayedAmount)
-        var parts = [period, "\(actual) \(direction)"]
+        let reading = DashboardFormat.carryoverCredit(progress).map { "\($0) carryover credit · \(actual) net used" }
+            ?? "\(actual) \(direction)"
+        var parts = [period, reading]
         if let target = progress.displayedTarget {
             parts.append("Target \(DashboardFormat.percent(100 * target)) \(direction) by now")
         }
@@ -74,7 +79,7 @@ struct MenuBarSummary {
                     if fillWidth > 0 {
                         let fill = NSRect(x: track.minX, y: track.minY, width: fillWidth, height: track.height)
                         let radius = min(1.5, fillWidth / 2)
-                        NSColor(isStale ? Graphite.muted : progress.level.color).setFill()
+                        NSColor(isStale ? Graphite.muted : progress.fillColor).setFill()
                         NSBezierPath(roundedRect: fill, xRadius: radius, yRadius: radius).fill()
                     }
                     if let target = progress.markerFraction {

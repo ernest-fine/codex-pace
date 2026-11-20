@@ -275,6 +275,8 @@ struct QuotaProgress {
         case unknown, withinTarget, slightlyOverTarget, overTarget
     }
 
+    static let zeroDisplayThreshold = 0.05
+
     let used: Double
     let target: Double?
     let showsRemaining: Bool
@@ -289,8 +291,25 @@ struct QuotaProgress {
 
     var displayedAmount: Double { displayedFraction(forUsed: used) }
     var displayedTarget: Double? { target.map(displayedFraction(forUsed:)) }
-    var barFraction: Double { min(1, max(0, displayedAmount)) }
-    var markerFraction: Double? { displayedTarget.map { min(1, max(0, $0)) } }
+
+    var carryoverCredit: Double? {
+        let credit = -displayedAmount
+        return credit.isFinite && 100 * credit > Self.zeroDisplayThreshold ? credit : nil
+    }
+
+    var barFraction: Double {
+        if let carryoverCredit { return carryoverCredit / (1 + carryoverCredit) }
+        return min(1, max(0, displayedAmount))
+    }
+
+    var markerFraction: Double? {
+        displayedTarget.map { target in
+            let scheduledPosition = min(1, max(0, target))
+            guard let carryoverCredit else { return scheduledPosition }
+            // Credit extends the track before the scheduled quota.
+            return (carryoverCredit + scheduledPosition) / (1 + carryoverCredit)
+        }
+    }
 
     var level: Level {
         guard let target else { return .unknown }

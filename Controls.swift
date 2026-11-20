@@ -12,7 +12,9 @@ enum Graphite {
     static let selection = adaptive(0xe6ebe6, 0x353e37)
     static let hero = adaptive(0xfdfefc, 0x222723)
     static let inset = adaptive(0xedf0eb, 0x2e3630)
-    static let track = adaptive(0xdde3dd, 0x3e4841)
+    static let track = adaptive(0xe8ece8, 0x48554e)
+    static let quotaCredit = adaptive(0x4e7ca9, 0xa3c9ed)
+    static let quotaUsage = adaptive(0x468464, 0xa0d5af)
     static let onPace = adaptive(0x287653, 0x8ac99e)
     static let caution = adaptive(0x946217, 0xe2ba73)
     static let risk = adaptive(0xa93846, 0xefa5a9)
@@ -31,11 +33,12 @@ enum Graphite {
     }
 }
 
-extension QuotaProgress.Level {
-    var color: Color {
-        switch self {
+extension QuotaProgress {
+    var fillColor: Color {
+        if carryoverCredit != nil { return Graphite.quotaCredit }
+        return switch level {
         case .unknown: Graphite.muted
-        case .withinTarget: Graphite.onPace
+        case .withinTarget: Graphite.quotaUsage
         case .slightlyOverTarget: Graphite.caution
         case .overTarget: Graphite.risk
         }

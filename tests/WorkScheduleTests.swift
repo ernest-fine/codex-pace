@@ -12,13 +12,14 @@ struct WorkScheduleTests {
         carriesOverOverspendWithJustTheCurrentReading()
         carriesOverUnderspendAndStopsAtTheEndTarget()
         showsSignedSessionUsageWithoutAnOpeningReading()
+        drawsCarryoverBeforeTheScheduledQuota()
         usesTheScheduleForTheTargetAndChecksStaleReadings()
         warnsWhenAPaceCanReachTheTargetSoon()
         warnsAtTheLimitAndSkipsStaleReadings()
         sessionChangeUsesTheLatestReadingWithinTheSession()
         sessionChangeSkipsMissingStaleAndResetReadings()
         try retainsManualResetTargetAcrossRefresh()
-        print("14 pacing and schedule tests passed")
+        print("15 pacing and schedule tests passed")
     }
 
     static func retainsManualResetTargetAcrossRefresh() throws {
@@ -184,7 +185,7 @@ struct WorkScheduleTests {
         precondition(abs(used.displayedAmount + 0.1) < 1e-9, "Unused quota should display as a negative Used balance")
         precondition(abs(left.displayedAmount - 1.1) < 1e-9)
         precondition(used.displayedTarget == 0.5 && left.displayedTarget == 0.5)
-        precondition(used.barFraction == 0 && left.barFraction == 1 && used.markerFraction == 0.5)
+        precondition(left.barFraction == 1 && left.markerFraction == 0.5)
 
         let previousUsed = used.used - running.sessionUsageChange! / 100
         precondition(used.displayedFraction(forUsed: previousUsed) == -0.25)
@@ -194,6 +195,31 @@ struct WorkScheduleTests {
         let overspent = carryoverPace(sample(hour: 10, minute: 30, used: 45))
         precondition(overspent.sessionProgress(showsRemaining: false)?.displayedAmount == 1.25)
         precondition(overspent.sessionProgress(showsRemaining: true)?.displayedAmount == 0)
+    }
+
+    static func drawsCarryoverBeforeTheScheduledQuota() {
+        let credit = carryoverPace(sample(hour: 10, minute: 30, used: 15))
+            .sessionProgress(showsRemaining: false)!
+        precondition(credit.barFraction == 0.2, "A 25% credit should fill one fifth of the combined allowance")
+        precondition(credit.markerFraction == 0.6)
+
+        let spent = carryoverPace(sample(hour: 10, minute: 30, used: 18))
+            .sessionProgress(showsRemaining: false)!
+        precondition(abs(spent.barFraction - 0.1 / 1.1) < 1e-9)
+        precondition(abs(spent.markerFraction! - 0.6 / 1.1) < 1e-9)
+
+        let exhausted = carryoverPace(sample(hour: 10, minute: 30, used: 20))
+            .sessionProgress(showsRemaining: false)!
+        precondition(exhausted.barFraction == 0 && exhausted.markerFraction == 0.5)
+        let active = carryoverPace(sample(hour: 10, minute: 30, used: 25))
+            .sessionProgress(showsRemaining: false)!
+        precondition(active.barFraction == 0.25 && active.markerFraction == 0.5)
+
+        let large = carryoverPace(sample(hour: 13, minute: 30, used: 20))
+            .sessionProgress(showsRemaining: false)!
+        precondition(large.barFraction == 0.75 && large.markerFraction == 0.875)
+        let nearZero = QuotaProgress(used: -0.00049, target: 0.5, showsRemaining: false, allowsNegativeUsed: true)
+        precondition(nearZero.barFraction == 0 && nearZero.markerFraction == 0.5)
     }
 
     static func usesTheScheduleForTheTargetAndChecksStaleReadings() {

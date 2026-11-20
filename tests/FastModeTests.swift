@@ -13,7 +13,8 @@ struct FastModeTests {
         keepsFastWhenThereIsNoLowerEffortToCompare()
         respectsAvailableModelSettings()
         skipsUnavailableOrExhaustedQuota()
-        print("9 model and speed recommendation checks passed")
+        presentsCarryoverCreditAndReturnsToUsage()
+        print("10 model and quota display checks passed")
     }
 
     static func readsFastCapabilityWithoutGuessingFromModelNames() {
@@ -98,6 +99,31 @@ struct FastModeTests {
         precondition(!dashboard(used: 100, deadlineHour: 13).hasModelRecommendation)
         precondition(!dashboard(used: 25, deadlineHour: 13, available: []).hasModelRecommendation)
         precondition(!dashboard(used: 25, deadlineHour: 13, workdays: []).hasModelRecommendation)
+    }
+
+    static func presentsCarryoverCreditAndReturnsToUsage() {
+        let data = dashboard(used: 15, deadlineHour: 13)
+        let used = MenuBarSummary.make(data: data, now: now, focus: .session, display: .used)
+        let credit = DashboardFormat.percent(40)
+        let netUsed = DashboardFormat.percent(-40)
+        let target = DashboardFormat.percent(50)
+        precondition(used.label == "\(credit) credit", used.label)
+        precondition(used.title.contains("\(netUsed) net used"), used.title)
+
+        let left = MenuBarSummary.make(data: data, now: now, focus: .session, display: .left)
+        precondition(left.label == "\(DashboardFormat.percent(140)) / \(target) left")
+
+        let zero = dashboard(used: 25, deadlineHour: 13)
+        let zeroUsed = MenuBarSummary.make(data: zero, now: now, focus: .session, display: .used)
+        precondition(zeroUsed.label == "\(DashboardFormat.percent(0)) / \(target) used")
+        let active = dashboard(used: 30, deadlineHour: 13)
+        let activeUsed = MenuBarSummary.make(data: active, now: now, focus: .session, display: .used)
+        precondition(activeUsed.label == "\(DashboardFormat.percent(20)) / \(target) used")
+
+        let nearZero = MenuBarSummary(period: "Session", progress: QuotaProgress(
+            used: -0.00049, target: 0.5, showsRemaining: false, allowsNegativeUsed: true
+        ))
+        precondition(nearZero.label == zeroUsed.label)
     }
 
     private static var now: Date { time(10, 30) }
