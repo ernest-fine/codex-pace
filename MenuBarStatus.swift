@@ -46,12 +46,10 @@ struct MenuBarSummary {
             return Self(period: "Off hours", progress: nil)
         }
         let period = DashboardFormat.sessionName(session)
-        guard data.guidance?.action != .checkUsage, let used = pace.sessionUsedFraction else {
+        guard data.guidance?.action != .checkUsage, let progress = pace.sessionProgress(showsRemaining: showsRemaining) else {
             return Self(period: period, progress: nil)
         }
-        return Self(period: period, progress: QuotaProgress(
-            used: used, target: pace.sessionTargetFraction, showsRemaining: showsRemaining
-        ))
+        return Self(period: period, progress: progress)
     }
 
     @MainActor

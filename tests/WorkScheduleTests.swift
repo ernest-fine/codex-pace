@@ -11,13 +11,14 @@ struct WorkScheduleTests {
         usesDayHoursForQuotaTargets()
         carriesOverOverspendWithJustTheCurrentReading()
         carriesOverUnderspendAndStopsAtTheEndTarget()
+        showsSignedSessionUsageWithoutAnOpeningReading()
         usesTheScheduleForTheTargetAndChecksStaleReadings()
         warnsWhenAPaceCanReachTheTargetSoon()
         warnsAtTheLimitAndSkipsStaleReadings()
         sessionChangeUsesTheLatestReadingWithinTheSession()
         sessionChangeSkipsMissingStaleAndResetReadings()
         try retainsManualResetTargetAcrossRefresh()
-        print("13 pacing and schedule tests passed")
+        print("14 pacing and schedule tests passed")
     }
 
     static func retainsManualResetTargetAcrossRefresh() throws {
@@ -172,6 +173,27 @@ struct WorkScheduleTests {
         precondition(over.sessionRoomToTarget == -5)
         precondition(over.sessionUsedFraction == 1.25)
         precondition(sessionGuidance(for: over, quota: quota, now: quota.observedAt)?.action == .pause)
+    }
+
+    static func showsSignedSessionUsageWithoutAnOpeningReading() {
+        let earlier = sample(hour: 10, minute: 10, used: 15)
+        let latest = sample(hour: 10, minute: 30, used: 18)
+        let running = carryoverPace(latest, history: [earlier])
+        let used = running.sessionProgress(showsRemaining: false)!
+        let left = running.sessionProgress(showsRemaining: true)!
+        precondition(abs(used.displayedAmount + 0.1) < 1e-9, "Unused quota should display as a negative Used balance")
+        precondition(abs(left.displayedAmount - 1.1) < 1e-9)
+        precondition(used.displayedTarget == 0.5 && left.displayedTarget == 0.5)
+        precondition(used.barFraction == 0 && left.barFraction == 1 && used.markerFraction == 0.5)
+
+        let previousUsed = used.used - running.sessionUsageChange! / 100
+        precondition(used.displayedFraction(forUsed: previousUsed) == -0.25)
+        precondition(left.displayedFraction(forUsed: previousUsed) == 1.25)
+        precondition(carryoverPace(latest).sessionProgress(showsRemaining: false)?.displayedAmount == used.displayedAmount)
+
+        let overspent = carryoverPace(sample(hour: 10, minute: 30, used: 45))
+        precondition(overspent.sessionProgress(showsRemaining: false)?.displayedAmount == 1.25)
+        precondition(overspent.sessionProgress(showsRemaining: true)?.displayedAmount == 0)
     }
 
     static func usesTheScheduleForTheTargetAndChecksStaleReadings() {

@@ -361,26 +361,24 @@ private struct CurrentSessionContent: View {
     }
 
     private func sessionReadings(_ pace: Pace, session: WorkSession) -> some View {
-        let usedFraction = pace.sessionUsedFraction
-        let shownPercent = DashboardFormat.sessionPercent(pace, display: targetDisplay)
-        let targetFraction = pace.sessionTargetFraction
-        let targetPercent = targetFraction.map { DashboardFormat.percent(targetDisplay.percent(forUsed: 100 * $0)) }
+        let progress = pace.sessionProgress(showsRemaining: targetDisplay == .left)
+        let shownPercent = DashboardFormat.percent(progress.map { 100 * $0.displayedAmount })
+        let targetPercent = progress.flatMap(\.displayedTarget).map { DashboardFormat.percent(100 * $0) }
         let comparison = shiftEndComparison(for: session, quota: quota, now: now)
 
         return VStack(alignment: .leading, spacing: 12) {
             VStack(alignment: .leading, spacing: 4) {
                 HStack(alignment: .bottom, spacing: 16) {
-                    QuotaReading(label: "Session quota \(targetDisplay.rawValue)", percent: shownPercent ?? "—", size: 54)
+                    QuotaReading(label: "Session quota \(targetDisplay.rawValue)", percent: shownPercent, size: 54)
                     Spacer(minLength: 0)
                     if let targetPercent {
                         QuotaReading(label: "Target \(targetDisplay.rawValue) by now", percent: targetPercent, size: 36, alignment: .trailing)
                     }
                 }
-                if let usedFraction, let change = pace.sessionUsageChange {
-                    let used = 100 * usedFraction
-                    let current = max(0, targetDisplay.percent(forUsed: used))
-                    let previous = max(0, targetDisplay.percent(forUsed: used - change))
-                    let difference = ((current - previous) * 10).rounded() / 10
+                if let progress, let change = pace.sessionUsageChange {
+                    let previous = progress.displayedFraction(forUsed: progress.used - change / 100)
+                    let displayedChange = 100 * (progress.displayedAmount - previous)
+                    let difference = (displayedChange * 10).rounded() / 10
                     if difference != 0 {
                         let sign = difference > 0 ? "+" : "−"
                         let amount = abs(difference).formatted(.number.precision(.fractionLength(0...1)))
@@ -391,13 +389,11 @@ private struct CurrentSessionContent: View {
                 }
             }
 
-            if let usedFraction, let shownPercent {
+            if let progress {
                 let kind = targetDisplay.rawValue
-                let displayedFraction = targetDisplay.percent(forUsed: usedFraction * 100) / 100
-                QuotaUsageBar(used: usedFraction, target: targetFraction,
-                              showsRemaining: targetDisplay == .left, thickness: 10)
+                QuotaUsageBar(progress: progress, thickness: 10)
                     .accessibilityRepresentation {
-                        ProgressView(value: min(1, max(0, displayedFraction)), total: 1)
+                        ProgressView(value: progress.barFraction, total: 1)
                             .accessibilityLabel("Session quota \(kind)")
                             .accessibilityValue(targetPercent.map { "\(shownPercent) \(kind), \($0) target by now" }
                                 ?? "\(shownPercent) \(kind)")
@@ -466,14 +462,11 @@ private struct CurrentSessionContent: View {
 }
 
 private struct QuotaUsageBar: View {
-    let used: Double
-    let target: Double?
-    var showsRemaining = false
+    let progress: QuotaProgress
     var thickness: CGFloat = 8
     var paceColor: Color?
 
     var body: some View {
-        let progress = QuotaProgress(used: used, target: target, showsRemaining: showsRemaining)
         GeometryReader { geometry in
             let width = geometry.size.width
             ZStack(alignment: .leading) {
@@ -720,9 +713,9 @@ private struct WeeklyQuotaContent: View {
     }
 
     private var readings: some View {
-        let used = quota.usedPercent / 100
         let plannedTarget = DashboardFormat.weeklyTarget(for: pace)
-        let target = plannedTarget.map { $0 / 100 }
+        let progress = QuotaProgress(used: quota.usedPercent / 100, target: plannedTarget.map { $0 / 100 },
+                                     showsRemaining: targetDisplay == .left)
         let actual = targetDisplay.percent(forUsed: quota.usedPercent)
         let actualText = DashboardFormat.percent(actual)
         let targetText = plannedTarget.map { DashboardFormat.percent(targetDisplay.percent(forUsed: $0)) }
@@ -739,8 +732,7 @@ private struct WeeklyQuotaContent: View {
                 }
             }
 
-            QuotaUsageBar(used: used, target: target, showsRemaining: targetDisplay == .left,
-                          thickness: 10, paceColor: action == .keepPace ? Graphite.onPace : nil)
+            QuotaUsageBar(progress: progress, thickness: 10, paceColor: action == .keepPace ? Graphite.onPace : nil)
                 .accessibilityRepresentation {
                     ProgressView(value: min(100, max(0, actual)), total: 100)
                         .accessibilityLabel("Weekly allowance \(targetDisplay.rawValue)")
@@ -1355,11 +1347,11 @@ enum DashboardFormat {
     }
 
     static func percent(_ value: Double?) -> String {
-        value.map { ($0 / 100).formatted(.percent.precision(.fractionLength(0 ... 1))) } ?? "—"
-    }
-
-    static func sessionPercent(_ pace: Pace, display: WeeklyTargetDisplay) -> String? {
-        pace.sessionUsedFraction.map { percent(max(0, display.percent(forUsed: 100 * $0))) }
+        value.map {
+            // Hide the minus sign when the percentage rounds to zero.
+            let amount = (-0.05...0).contains($0) ? 0 : $0
+            return (amount / 100).formatted(.percent.precision(.fractionLength(0 ... 1)))
+        } ?? "—"
     }
 
     static func weeklyTarget(for pace: Pace?) -> Double? {
