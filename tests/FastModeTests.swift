@@ -9,9 +9,11 @@ struct FastModeTests {
         usesQuotaThroughTheResetTarget()
         ignoresRecentModelEffortAndWorkload()
         requiresBothKindsOfHeadroomForFast()
+        comparesTheCostOfEffortAndSpeed()
+        keepsFastWhenThereIsNoLowerEffortToCompare()
         respectsAvailableModelSettings()
         skipsUnavailableOrExhaustedQuota()
-        print("7 model and speed recommendation checks passed")
+        print("9 model and speed recommendation checks passed")
     }
 
     static func readsFastCapabilityWithoutGuessingFromModelNames() {
@@ -37,7 +39,7 @@ struct FastModeTests {
         let manual = dashboard(used: 51.7, deadlineHour: 13, previousUsed: 51.2)
         precondition(abs((manual.pace?.sessionUsedFraction ?? 0) - 1.068) < 0.0001)
         precondition(manual.budgetWarning?.isWeekly == false)
-        precondition(manual.recommendation == "Use Astra · Ultra · Fast", manual.recommendation)
+        precondition(manual.recommendation == "Use Astra · Ultra · Standard", manual.recommendation)
         precondition(manual.hasModelRecommendation && manual.showsRecommendation)
 
         let scheduled = dashboard(used: 51.7, previousUsed: 51.2)
@@ -47,18 +49,38 @@ struct FastModeTests {
     static func ignoresRecentModelEffortAndWorkload() {
         let heavy = Activity(observedAt: now, model: "gpt-6.2-sol", effort: "max", turns: 8, tokens: 800_000)
         let light = Activity(observedAt: now, model: "gpt-6-luna", effort: "low", turns: 1, tokens: 3_000)
-        let expected = "Use Astra · Ultra · Fast"
+        let expected = "Use Astra · Ultra · Standard"
         precondition(dashboard(used: 51.7, deadlineHour: 13, activity: heavy).recommendation == expected)
         precondition(dashboard(used: 51.7, deadlineHour: 13, activity: light).recommendation == expected)
         precondition(dashboard(used: 51.7, deadlineHour: 13).recommendation == expected)
     }
 
     static func requiresBothKindsOfHeadroomForFast() {
-        precondition(dashboard(used: 70, deadlineHour: 13).recommendation == "Use Astra · Ultra · Fast")
-        precondition(dashboard(used: 71, deadlineHour: 12).recommendation == "Use Astra · Ultra · Standard")
-        precondition(dashboard(used: 60, deadlineHour: 14).recommendation == "Use Astra · Ultra · Standard")
+        precondition(dashboard(used: 70, deadlineHour: 13, fastCostRatio: "0.8").recommendation == "Use Astra · Max · Fast")
+        precondition(dashboard(used: 71, deadlineHour: 12, fastCostRatio: "0.8").recommendation == "Use Astra · Ultra · Standard")
+        precondition(dashboard(used: 60, deadlineHour: 14, fastCostRatio: "0.8").recommendation == "Use Astra · Ultra · Standard")
         precondition(dashboard(used: 75, deadlineHour: 14).recommendation == "Use Astra · Max · Standard")
         precondition(dashboard(used: 98, deadlineHour: 13).recommendation == "Use Luna · Low · Standard")
+    }
+
+    static func comparesTheCostOfEffortAndSpeed() {
+        let higherEffort = "Use Astra · Ultra · Standard"
+        for ratio in ["1", "1.2", "", "NaN", "0", "-0.8", "0,8"] {
+            let result = dashboard(used: 70, deadlineHour: 13, fastCostRatio: ratio)
+            precondition(result.recommendation == higherEffort, result.recommendation)
+        }
+
+        let limited = ModelOption(id: "gpt-6.2-astra", name: "Astra", efforts: ["ultra", "low", "high"],
+                                  defaultEffort: "low", isDefault: true, supportsFastMode: true)
+        let cheaperFast = dashboard(used: 70, deadlineHour: 13, available: [limited], fastCostRatio: " 0.8 ")
+        precondition(cheaperFast.recommendation == "Use Astra · High · Fast", cheaperFast.recommendation)
+    }
+
+    static func keepsFastWhenThereIsNoLowerEffortToCompare() {
+        let onlyUltra = ModelOption(id: "gpt-6.2-astra", name: "Astra", efforts: ["ultra"],
+                                    defaultEffort: "ultra", isDefault: true, supportsFastMode: true)
+        let result = dashboard(used: 70, deadlineHour: 13, available: [onlyUltra], fastCostRatio: "1.2")
+        precondition(result.recommendation == "Use Astra · Ultra · Fast", result.recommendation)
     }
 
     static func respectsAvailableModelSettings() {
@@ -92,7 +114,8 @@ struct FastModeTests {
 
     private static func dashboard(
         used: Double, deadlineHour: Int? = nil, previousUsed: Double? = nil, observedAt: Date? = nil,
-        activity: Activity? = nil, available: [ModelOption]? = nil, workdays: Set<Workday> = Workday.standard
+        activity: Activity? = nil, available: [ModelOption]? = nil, workdays: Set<Workday> = Workday.standard,
+        fastCostRatio: String = ""
     ) -> DashboardData {
         let reset = WorkClock.calendar.date(byAdding: .day, value: 7, to: time(0))!
         let target = deadlineHour.map { ManualResetTarget(targetAt: time($0), windowResetsAt: reset) }
@@ -106,7 +129,8 @@ struct FastModeTests {
             SessionTemplate(id: UUID(), name: "Work \(hour)", startMinute: hour * 60, endMinute: (hour + 1) * 60)
         }
         return dashboardData(telemetry: telemetry, history: history, now: now, isRefreshing: false, isDemo: true,
-                             schedule: WorkSchedule(sessions: sessions), resetTarget: target, workdays: workdays)
+                             schedule: WorkSchedule(sessions: sessions), resetTarget: target, workdays: workdays,
+                             fastTradeoffCostRatio: fastCostRatio)
     }
 
     static func model(supported: Bool?) -> ModelOption {

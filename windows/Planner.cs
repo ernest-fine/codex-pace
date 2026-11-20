@@ -10,7 +10,8 @@ internal static class Planner
     private static readonly string[] EffortOrder = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 
     public static DashboardData Calculate(
-        Telemetry? telemetry, IReadOnlyList<QuotaSample> history, Preferences preferences, DateTimeOffset now)
+        Telemetry? telemetry, IReadOnlyList<QuotaSample> history, Preferences preferences, DateTimeOffset now,
+        string? fastTradeoffCostRatio = null)
     {
         var quota = telemetry?.Quota;
         var shortQuota = telemetry?.ShortQuota;
@@ -36,7 +37,7 @@ internal static class Planner
 
         var guidance = pace is null || quota is null ? null : GuideSession(pace, quota, now);
         var (status, recommendation, detail, warning) = Recommend(quota, pace, deadline, now);
-        var modelAdvice = QuotaRecommendation(quota, pace, models, now);
+        var modelAdvice = QuotaRecommendation(quota, pace, models, now, fastTradeoffCostRatio);
         return new DashboardData(
             quota, shortQuota, pace, guidance, status, modelAdvice?.Setting ?? recommendation,
             modelAdvice?.Detail ?? detail, ActivityCaption(activity, models),
@@ -428,7 +429,7 @@ internal static class Planner
         models.FirstOrDefault(model => model.Id == id)?.Name ?? id;
 
     private static (string Setting, string Detail)? QuotaRecommendation(
-        QuotaSample? quota, Pace? pace, IReadOnlyList<ModelOption> models, DateTimeOffset now)
+        QuotaSample? quota, Pace? pace, IReadOnlyList<ModelOption> models, DateTimeOffset now, string? fastTradeoffCostRatio)
     {
         if (quota is null || quota.UsedPercent >= 100 || !HasFreshQuota(quota, now)
             || pace?.SafeRate is not double rate || !double.IsFinite(rate) || rate <= 0)
@@ -446,9 +447,19 @@ internal static class Planner
             ?? models.FirstOrDefault(option => option.IsDefault) ?? models.FirstOrDefault();
         if (model is null) return null;
 
-        var level = EffortOrder.Take(Array.IndexOf(EffortOrder, effort) + 1).LastOrDefault(model.Efforts.Contains)
+        var standardEffort = EffortOrder.Take(Array.IndexOf(EffortOrder, effort) + 1).LastOrDefault(model.Efforts.Contains)
             ?? model.DefaultEffort ?? model.Efforts.FirstOrDefault();
-        string? speed = model.SupportsFastMode == true ? (left >= 30 && rate >= 12 ? "Fast" : "Standard") : null;
+        bool supportsFast = model.SupportsFastMode == true;
+        var lowerEffort = standardEffort is null ? null
+            : EffortOrder.Take(Array.IndexOf(EffortOrder, standardEffort)).LastOrDefault(model.Efforts.Contains);
+
+        // Compare lower effort at Fast with higher effort at Standard, normalized to 1.
+        string? configuredRatio = fastTradeoffCostRatio ?? Environment.GetEnvironmentVariable("CODEX_PACE_FAST_TRADEOFF_COST_RATIO");
+        double estimatedFastCost = double.TryParse(configuredRatio, NumberStyles.Float, CultureInfo.InvariantCulture, out var ratio)
+            && double.IsFinite(ratio) && ratio > 0 ? ratio : 1;
+        bool useFast = supportsFast && left >= 30 && rate >= 12 && (lowerEffort is null || estimatedFastCost < 1);
+        var level = useFast ? lowerEffort ?? standardEffort : standardEffort;
+        string? speed = supportsFast ? (useFast ? "Fast" : "Standard") : null;
         string settings = string.Join(" · ", new[] { model.Name, level is null ? null : EffortName(level, model.Id), speed }
             .Where(value => value is not null));
         string detail = $"Based on {QuotaDisplay.Percent(left)} of weekly quota left, or {QuotaDisplay.Percent(rate)} per work hour before reset.";

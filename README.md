@@ -8,9 +8,9 @@ Sign in to Codex on the computer where you’ll run the tracker.
 
 | Platform | Download | How to run |
 | --- | --- | --- |
-| macOS 14 or later on Apple silicon | [macOS 1.23.8](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.8/Codex-Pace-macOS-arm64.zip) | Extract the ZIP and open **Codex Pace.app**. The menu bar follows the quota view you select. |
-| Windows 11 on Intel or AMD | [Windows x64 1.23.8](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.8/Codex-Pace-Windows-x64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
-| Windows 11 on Arm | [Windows Arm64 1.23.8](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.8/Codex-Pace-Windows-arm64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
+| macOS 14 or later on Apple silicon | [macOS 1.23.9](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.9/Codex-Pace-macOS-arm64.zip) | Extract the ZIP and open **Codex Pace.app**. The menu bar follows the quota view you select. |
+| Windows 11 on Intel or AMD | [Windows x64 1.23.9](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.9/Codex-Pace-Windows-x64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
+| Windows 11 on Arm | [Windows Arm64 1.23.9](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.9/Codex-Pace-Windows-arm64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
 
 The Windows ZIP includes the files the app needs. Keep them with `CodexPace.exe`. macOS may ask you to approve the app in Privacy & Security the first time you open it. [Apple’s first-launch guidance](https://support.apple.com/en-us/102445)
 
@@ -23,6 +23,7 @@ Keep Codex Pace running for background updates and notifications. Pace checks lo
 - Open **Edit sessions** on macOS or **Schedule → Edit sessions** on Windows. Choose **Edited days** to set each day’s hours or **Entire week** to use one schedule for all seven days. Use **Work days** to choose which days count toward your plan. The **Work sessions** table shows the quota target at the end of each session.
 - In **Edit sessions**, choose **Save as template** to keep a named copy of the session names and hours on screen. Choose **Apply template** to fill the selected day or entire-week draft, then save the schedule to use it. Templates are stored locally and are available the next time you open Pace.
 - Look under **Next turn** for a model and effort suggestion based on weekly quota left and the scheduled work time before your reset target. For supported models, Pace also suggests **Fast** or **Standard**. Pace can also notify you once per target when your recent usage puts it within 30 minutes.
+- When Fast fits the quota plan, Pace compares the recommended effort at Standard with the next lower supported effort at Fast on the same model. Pace assumes equal cost by default and prefers the higher effort at Standard.
 - Use **Set reset target** to plan for an earlier deadline. Redeem the reset in Codex at the time you choose.
 
 Schedules and reset times use your computer’s local time zone. The app follows your computer’s light or dark appearance.
@@ -32,6 +33,8 @@ Schedules and reset times use your computer’s local time zone. The app follows
 Codex Pace reads your signed-in account’s quota through Codex App Server. It can fall back to recent readings in the local Codex session history. The dashboard shows the source and age of the reading. Quota history, preferences, and your schedule are stored on your computer.
 
 If Codex Pace needs help finding the CLI, set `CODEX_PACE_CODEX` to the full path of the native Codex executable.
+
+Codex reports quota use in aggregate. If you have your own estimate, set `CODEX_PACE_FAST_TRADEOFF_COST_RATIO` to the estimated quota cost of the lower-effort Fast option divided by the cost of the higher-effort Standard option. The default is `1`, which means equal cost. A ratio below `1`, such as `0.8`, lets the cheaper Fast option win when it fits the quota plan.
 
 ## Build from source
 
