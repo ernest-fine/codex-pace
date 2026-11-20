@@ -241,6 +241,12 @@ struct Pace {
         return (share - sessionRoomToTarget) / share
     }
 
+    func sessionProgress(showsRemaining: Bool) -> QuotaProgress? {
+        guard let used = sessionUsedFraction else { return nil }
+        return QuotaProgress(used: used, target: sessionTargetFraction, showsRemaining: showsRemaining,
+                             allowsNegativeUsed: true)
+    }
+
     fileprivate var sessionDeviation: Double? {
         guard let share = currentSession?.targetPercent, let sessionUsedFraction, let sessionTargetFraction else { return nil }
         return (sessionUsedFraction - sessionTargetFraction) * share
@@ -272,11 +278,19 @@ struct QuotaProgress {
     let used: Double
     let target: Double?
     let showsRemaining: Bool
+    private let allowsNegativeUsed: Bool
 
-    var displayedAmount: Double { oriented(used) }
-    var displayedTarget: Double? { target.map(oriented) }
-    var barFraction: Double { min(1, displayedAmount) }
-    var markerFraction: Double? { displayedTarget.map { min(1, $0) } }
+    init(used: Double, target: Double?, showsRemaining: Bool, allowsNegativeUsed: Bool = false) {
+        self.used = used
+        self.target = target
+        self.showsRemaining = showsRemaining
+        self.allowsNegativeUsed = allowsNegativeUsed
+    }
+
+    var displayedAmount: Double { displayedFraction(forUsed: used) }
+    var displayedTarget: Double? { target.map(displayedFraction(forUsed:)) }
+    var barFraction: Double { min(1, max(0, displayedAmount)) }
+    var markerFraction: Double? { displayedTarget.map { min(1, max(0, $0)) } }
 
     var level: Level {
         guard let target else { return .unknown }
@@ -285,8 +299,9 @@ struct QuotaProgress {
         return .overTarget
     }
 
-    private func oriented(_ fraction: Double) -> Double {
-        max(0, showsRemaining ? 1 - fraction : fraction)
+    func displayedFraction(forUsed fraction: Double) -> Double {
+        if showsRemaining { return max(0, 1 - fraction) }
+        return allowsNegativeUsed ? fraction : max(0, fraction)
     }
 }
 
