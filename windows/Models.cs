@@ -87,9 +87,8 @@ internal sealed record WorkSchedule(int MorningStart, int MorningEnd, int Aftern
 
 internal sealed record ManualResetTarget(DateTimeOffset TargetAt, DateTimeOffset WindowResetsAt)
 {
-    // Account and local readings can differ by a few seconds for the same weekly reset.
-    public static bool SameWindow(DateTimeOffset expectedReset, DateTimeOffset observedReset) =>
-        Math.Abs((observedReset - expectedReset).TotalSeconds) <= 5;
+    public DateTimeOffset? ActiveDeadline(DateTimeOffset now, DateTimeOffset scheduledReset) =>
+        now < TargetAt && TargetAt < scheduledReset ? TargetAt : null;
 }
 
 internal sealed record Preferences
@@ -102,6 +101,14 @@ internal sealed record Preferences
     public DayOfWeek[] Workdays { get; init; } = [.. StandardWorkdays];
     public ManualResetTarget? ResetTarget { get; init; }
     public bool ShowUsed { get; init; }
+
+    public Preferences AfterQuotaRefresh(QuotaSample? observed, DateTimeOffset now)
+    {
+        if (ResetTarget is not { } target || target.TargetAt > now || observed is null) return this;
+        if (now >= target.WindowResetsAt || target.TargetAt < observed.ResetsAt.AddMinutes(-observed.WindowMinutes))
+            return this with { ResetTarget = null };
+        return this;
+    }
 }
 
 internal enum SessionAction { CheckUsage, AwaitingReadings, Pause, SlowDown, KeepPace, RoomToSpeedUp }

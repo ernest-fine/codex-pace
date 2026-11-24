@@ -25,13 +25,7 @@ internal static class Planner
         Pace? pace = null;
         if (quota is not null && quota.ResetsAt > now)
         {
-            var target = preferences.ResetTarget;
-            if (target is not null && ManualResetTarget.SameWindow(target.WindowResetsAt, quota.ResetsAt) &&
-                target.TargetAt > now && target.TargetAt < quota.ResetsAt)
-            {
-                deadline = target.TargetAt;
-            }
-
+            deadline = preferences.ResetTarget?.ActiveDeadline(now, quota.ResetsAt);
             pace = CalculatePace(quota, history, preferences, deadline ?? quota.ResetsAt, now);
         }
 

@@ -148,11 +148,7 @@ internal sealed class PaceApplication
     private void Accept(Telemetry current, DateTimeOffset now)
     {
         latestObserved = current.Source == "Codex account" ? current.Quota : null;
-        if (current.Quota is { } observed && state.Preferences.ResetTarget is { } target
-            && !ManualResetTarget.SameWindow(target.WindowResetsAt, observed.ResetsAt))
-        {
-            state = state with { Preferences = state.Preferences with { ResetTarget = null } };
-        }
+        state = state with { Preferences = state.Preferences.AfterQuotaRefresh(current.Quota, now) };
 
         var saved = state.History.LastOrDefault(sample => sample.ObservedAt <= now);
         var quota = current.Quota ?? saved;

@@ -307,9 +307,10 @@ internal sealed class MainWindow : Window
         }
 
         var pace = state.Pace;
-        var existing = preferences.ResetTarget is { } manual && ManualResetTarget.SameWindow(manual.WindowResetsAt, quota.ResetsAt) ? manual : null;
-        Set(heroSubtitle, existing is not null && pace?.PlanEndsAt == existing.TargetAt
-            ? $"Reset target {Stamp(existing.TargetAt)}"
+        var existing = preferences.ResetTarget;
+        var activeDeadline = existing?.ActiveDeadline(renderedNow, quota.ResetsAt);
+        Set(heroSubtitle, activeDeadline is { } deadline
+            ? $"Reset target {Stamp(deadline)}"
             : $"Resets {Day(WorkClock.Day(quota.ResetsAt))} at {Time(quota.ResetsAt)}");
         double? target = pace is { Sessions.Count: > 0 } ? pace.TargetPercent : null;
         string kind = preferences.ShowUsed ? "used" : "left";
@@ -333,7 +334,7 @@ internal sealed class MainWindow : Window
         var reset = new Button
         {
             Content = existing is null ? "Set reset target…" : "Edit reset target…",
-            IsEnabled = NextMinute(CurrentTime()) < quota.ResetsAt,
+            IsEnabled = existing is not null || NextMinute(CurrentTime()) < quota.ResetsAt,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
         };
@@ -341,7 +342,8 @@ internal sealed class MainWindow : Window
         detail.Children.Add(Pair(Metric("Scheduled reset", Stamp(quota.ResetsAt)), reset, 310));
         if (existing is not null)
         {
-            var note = existing.TargetAt <= renderedNow ? " · Target passed" : pace?.PlanEndsAt == existing.TargetAt ? " · Pacing uses this target" : "";
+            var note = existing.TargetAt <= renderedNow ? " · Target passed" : activeDeadline.HasValue
+                ? " · Pacing uses this target" : " · Saved for a quota window that ends after this target";
             detail.Children.Add(Text($"Manual reset target · {Stamp(existing.TargetAt)}{note}", 16, secondary: true));
         }
 
@@ -588,26 +590,21 @@ internal sealed class MainWindow : Window
 
     private async Task EditResetTargetAsync(XamlRoot xamlRoot)
     {
-        if (data?.Quota is not { } quota || NextMinute(CurrentTime()) >= quota.ResetsAt) return;
-        var existing = preferences.ResetTarget is { } target && ManualResetTarget.SameWindow(target.WindowResetsAt, quota.ResetsAt)
-            ? target.TargetAt : (DateTimeOffset?)null;
-        var result = await SettingsDialogs.EditResetTargetAsync(xamlRoot, quota.ResetsAt, existing, CurrentTime);
+        var result = await SettingsDialogs.EditResetTargetAsync(xamlRoot, () => data?.Quota?.ResetsAt,
+            preferences.ResetTarget?.TargetAt, CurrentTime);
         if (!result.Applied) return;
-        var currentTime = CurrentTime();
-        var currentReset = data?.Quota?.ResetsAt ?? DateTimeOffset.MinValue;
-        string? validation = currentTime >= currentReset || !ManualResetTarget.SameWindow(quota.ResetsAt, currentReset)
-            ? "The quota window changed. Open the reset target for the current window."
-            : result.Target is { } saved && (saved <= currentTime || saved >= currentReset)
-                ? "Choose a future time before the scheduled reset." : null;
-        if (validation is not null)
+        ManualResetTarget? target = null;
+        if (result.Target is { } saved)
         {
-            await new ContentDialog { XamlRoot = xamlRoot, Title = "Reset target", Content = validation, CloseButtonText = "OK" }.ShowAsync();
-            return;
+            if (data?.Quota is not { } current || saved <= CurrentTime() || saved >= current.ResetsAt)
+            {
+                await new ContentDialog { XamlRoot = xamlRoot, Title = "Reset target",
+                    Content = "Choose a future time before the scheduled reset.", CloseButtonText = "OK" }.ShowAsync();
+                return;
+            }
+            target = new ManualResetTarget(saved, current.ResetsAt);
         }
-        PreferencesChanged?.Invoke(preferences with
-        {
-            ResetTarget = result.Target is { } deadline ? new ManualResetTarget(deadline, currentReset) : null,
-        });
+        PreferencesChanged?.Invoke(preferences with { ResetTarget = target });
     }
 
     private void AddMenuItem(MenuFlyout menu, string label, Func<XamlRoot, Task> show)

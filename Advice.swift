@@ -184,7 +184,7 @@ func dashboardData(
     )
 
     return DashboardData(
-        quota: quota, pace: pace,
+        quota: quota, pace: pace, usesManualResetTarget: hasManualDeadline,
         guidance: pace.flatMap { sessionGuidance(for: $0, quota: quota, now: now) },
         shortQuota: shortQuota, status: status,
         recommendation: modelAdvice?.setting ?? recommendation,

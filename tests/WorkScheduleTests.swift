@@ -28,13 +28,27 @@ struct WorkScheduleTests {
         let target = ManualResetTarget(targetAt: now.addingTimeInterval(3600), windowResetsAt: reset)
         let restored = try JSONDecoder().decode(ManualResetTarget.self, from: JSONEncoder().encode(target))
 
-        for shift: TimeInterval in [-1, 0, 1, 5, 6, 7 * 86_400] {
+        for shift: TimeInterval in [-86_400, -1, 0, 1, 5, 6, 5 * 86_400] {
             let reading = QuotaSample(observedAt: now, resetsAt: reset.addingTimeInterval(shift),
                                       windowMinutes: 10080, usedPercent: 28)
-            let expected = abs(shift) <= 5 ? target.targetAt : reading.resetsAt
             let pace = calculatePace(quota: reading, history: [], now: now, resetTarget: restored)
-            precondition(pace.planEndsAt == expected, "Unexpected target after a \(shift)s reset timestamp shift")
+            precondition(pace.planEndsAt == target.targetAt, "Lost the chosen target after a \(shift)s reset timestamp shift")
         }
+
+        let earlier = QuotaSample(observedAt: now, resetsAt: target.targetAt.addingTimeInterval(-60),
+                                  windowMinutes: 10080, usedPercent: 28)
+        precondition(!restored.hasExpired(for: earlier, now: now))
+        precondition(restored.activeDeadline(for: earlier, now: now) == nil)
+
+        let original = QuotaSample(observedAt: now, resetsAt: reset, windowMinutes: 10080, usedPercent: 28)
+        precondition(restored.activeDeadline(for: original, now: target.targetAt) == nil)
+        precondition(!restored.hasExpired(for: original, now: target.targetAt), "Show the passed target in its window")
+        precondition(restored.hasExpired(for: original, now: reset))
+
+        let nextStart = target.targetAt.addingTimeInterval(60)
+        let next = QuotaSample(observedAt: nextStart, resetsAt: nextStart.addingTimeInterval(7 * 86_400),
+                               windowMinutes: 10080, usedPercent: 0)
+        precondition(restored.hasExpired(for: next, now: nextStart))
     }
 
     static func migratesSharedSessions() throws {

@@ -34,7 +34,8 @@ internal static class ScheduleChecks
             ("Recommendation compares higher effort at Standard with lower effort at Fast", FastModeChecks.ComparesEffortAndSpeedCosts),
             ("Invalid cost estimates default to equal cost", FastModeChecks.DefaultsInvalidEstimatesToEqualCost),
             ("Fast remains available when no lower effort can be compared", FastModeChecks.KeepsFastWhenThereIsNoComparableEffort),
-            ("Manual reset target stays active across refreshed timestamps", RetainsManualResetTargetAcrossRefresh),
+            ("Refresh and restart preserve a future manual reset target", RetainsManualResetTargetAcrossRefresh),
+            ("Passed reset targets retire with their quota window", RetiresPassedManualResetTarget),
             ("Recommendation uses the quota left through the reset target", FastModeChecks.UsesQuotaThroughTheResetTarget),
             ("Recommendation ignores the latest model, effort and workload", FastModeChecks.IgnoresRecentModelEffortAndWorkload),
             ("Fast needs enough remaining quota and enough quota per hour", FastModeChecks.RequiresBothKindsOfHeadroomForFast),
@@ -62,20 +63,36 @@ internal static class ScheduleChecks
 
     private static void RetainsManualResetTargetAcrossRefresh()
     {
-        var now = WindowStart.AddHours(2);
-        var target = new ManualResetTarget(now.AddHours(1), Reset);
-        var preferences = JsonSerializer.Deserialize<Preferences>(
-            JsonSerializer.Serialize(new Preferences { ResetTarget = target }))!;
-
-        foreach (int shift in new[] { -1, 0, 1, 5, 6, 7 * 86400 })
+        var now = Reset.AddDays(-2);
+        var target = new ManualResetTarget(now.AddHours(12), Reset);
+        var preferences = new Preferences { ResetTarget = target };
+        Equal(target, preferences.AfterQuotaRefresh(null, now).ResetTarget, "missing quota preserves the target");
+        foreach (var reset in new[] { Reset.AddSeconds(6), now.AddDays(7), target.TargetAt, now.AddHours(1), Reset })
         {
-            var reading = new QuotaSample(now, Reset.AddSeconds(shift), 10080, 28);
+            var reading = new QuotaSample(now, reset, 10080, 28);
+            preferences = JsonSerializer.Deserialize<Preferences>(
+                JsonSerializer.Serialize(preferences.AfterQuotaRefresh(reading, now)))!;
+            Equal(target, preferences.ResetTarget, "saved target after refresh and restart");
+            Equal(target.TargetAt < reset, target.ActiveDeadline(now, reset).HasValue, "target is active only before reset");
             var telemetry = new Telemetry(reading, null, [], null, [], "Test", null);
             var pace = Planner.Calculate(telemetry, [], preferences, now).Pace;
-            var expected = Math.Abs(shift) <= 5 ? target.TargetAt : reading.ResetsAt;
-            if (pace?.PlanEndsAt != expected)
-                throw new InvalidOperationException($"Unexpected target after a {shift}s reset timestamp shift.");
+            Equal(target.TargetAt < reset ? target.TargetAt : reset, pace?.PlanEndsAt, "planning deadline");
         }
+    }
+
+    private static void RetiresPassedManualResetTarget()
+    {
+        var target = new ManualResetTarget(Reset.AddDays(-2), Reset);
+        var preferences = new Preferences { ResetTarget = target };
+        var now = target.TargetAt.AddHours(1);
+        var reading = new QuotaSample(now, Reset.AddSeconds(6), 10080, 28);
+        Equal(target, preferences.AfterQuotaRefresh(reading, now).ResetTarget, "passed target in the current window");
+        var telemetry = new Telemetry(reading, null, [], null, [], "Test", null);
+        Equal(reading.ResetsAt, Planner.Calculate(telemetry, [], preferences, now).Pace?.PlanEndsAt, "passed target is inactive");
+        Assert(preferences.AfterQuotaRefresh(reading, Reset).ResetTarget is null, "original window ended");
+        var rolledOver = reading with { ResetsAt = now.AddDays(7) };
+        Assert(preferences.AfterQuotaRefresh(rolledOver, now).ResetTarget is null, "target predates the new window");
+        Assert(new Preferences().AfterQuotaRefresh(reading, now).ResetTarget is null, "refresh preserves an explicit clear");
     }
 
     private static void ReadsLegacySchedule()
