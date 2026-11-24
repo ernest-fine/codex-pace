@@ -263,21 +263,19 @@ internal static class SettingsDialogs
     }
 
     public static async Task<(bool Applied, DateTimeOffset? Target)> EditResetTargetAsync(
-        XamlRoot root, DateTimeOffset scheduledReset, DateTimeOffset? existingTarget, Func<DateTimeOffset> now)
+        XamlRoot root, Func<DateTimeOffset?> currentReset, DateTimeOffset? existingTarget, Func<DateTimeOffset> now)
     {
         var next = NextMinute(now());
-        if (next >= scheduledReset) return (false, null);
+        var scheduledReset = currentReset();
+        if (existingTarget is null && (scheduledReset is null || next >= scheduledReset)) return (false, null);
         var initial = WorkClock.Local(existingTarget ?? (next.AddMinutes(30) < scheduledReset ? next.AddMinutes(30) : next));
         var body = new StackPanel { Spacing = 10 };
         var date = new CalendarDatePicker { Header = "Date", Date = initial };
         var time = HourPicker("Time", (int)initial.TimeOfDay.TotalMinutes);
         time.Header = "Time";
         var error = Message();
-        body.Children.Add(new TextBlock
-        {
-            Text = $"Scheduled account reset · {WorkClock.Local(scheduledReset).ToString("ddd, d MMM HH:mm", CultureInfo.CurrentCulture)}",
-            TextWrapping = TextWrapping.Wrap
-        });
+        var scheduled = new TextBlock { TextWrapping = TextWrapping.Wrap };
+        body.Children.Add(scheduled);
         body.Children.Add(date);
         body.Children.Add(time);
         body.Children.Add(error);
@@ -292,10 +290,16 @@ internal static class SettingsDialogs
         bool Validate()
         {
             var proposed = Proposed();
-            string? message = proposed is null || proposed <= now()
+            var reset = currentReset();
+            bool future = proposed > now();
+            scheduled.Text = reset is { } dateTime
+                ? $"Scheduled account reset · {WorkClock.Local(dateTime).ToString("ddd, d MMM HH:mm", CultureInfo.CurrentCulture)}"
+                : "Scheduled account reset unavailable";
+            string? message = !future
                 ? "Choose a date and time in the future."
-                : proposed >= scheduledReset ? "Choose a time before the scheduled account reset." : null;
-            dialog.IsPrimaryButtonEnabled = message is null;
+                : reset is null || proposed >= reset ? "Choose a time before the scheduled account reset." : null;
+            // A refresh can move the reset while the dialog is open. Recheck it on Save.
+            dialog.IsPrimaryButtonEnabled = future;
             SetMessage(error, message);
             return message is null;
         }

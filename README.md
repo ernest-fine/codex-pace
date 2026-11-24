@@ -24,7 +24,7 @@ Keep Codex Pace running for background updates and notifications. Pace checks lo
 - In **Edit sessions**, choose **Save as template** to keep a named copy of the session names and hours on screen. Choose **Apply template** to fill the selected day or entire-week draft, then save the schedule to use it. Templates are stored locally and are available the next time you open Pace.
 - Look under **Next turn** for a model and effort suggestion based on weekly quota left and the scheduled work time before your reset target. For supported models, Pace also suggests **Fast** or **Standard**. Pace can also notify you once per target when your recent usage puts it within 30 minutes.
 - When Fast fits the quota plan, Pace compares the recommended effort at Standard with the next lower supported effort at Fast on the same model. Pace assumes equal cost by default and prefers the higher effort at Standard.
-- Use **Set reset target** to plan for an earlier deadline. Redeem the reset in Codex at the time you choose.
+- Use **Set reset target** to plan for an earlier deadline. Pace keeps the date you choose across refreshes and restarts, including when Codex reports a new quota window. If the scheduled reset comes first, Pace uses it and keeps your future target for the next window. Redeem the reset in Codex at the time you choose.
 
 Schedules and reset times use your computer’s local time zone. The app follows your computer’s light or dark appearance.
 
@@ -51,6 +51,8 @@ test_dir=$(mktemp -d)
 swiftc BudgetWarning.swift Controls.swift Pacing.swift ScheduleEditor.swift Telemetry.swift tests/WorkScheduleTests.swift -o "$test_dir/work-schedule-tests"
 "$test_dir/work-schedule-tests"
 ```
+
+Run `./tests/manual-reset-refresh.sh` to check target persistence across refreshes and relaunches with isolated preferences and quota readings.
 
 **Windows** uses WinUI 3 and the .NET 10 SDK. On Windows, run this from the project root to create the x64 app folder.
 

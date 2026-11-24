@@ -16,6 +16,7 @@ enum RecommendationTone {
 struct DashboardData {
     var quota: QuotaSample?
     var pace: Pace?
+    var usesManualResetTarget: Bool
     var guidance: SessionGuidance?
     var shortQuota: QuotaSample?
     var status: String
@@ -52,7 +53,7 @@ struct Dashboard: View {
     let workdays: Set<Workday>
     let changeWorkdays: (Set<Workday>) -> Void
     let manualResetTarget: Date?
-    let changeResetTarget: (Date?, Date) -> Bool
+    let changeResetTarget: (Date?) -> Bool
     let refresh: () -> Void
     @Binding var targetDisplay: WeeklyTargetDisplay
     @Binding var heroFocus: HeroFocus
@@ -196,7 +197,7 @@ struct Dashboard: View {
 
     private func heroSubtitle(session: WorkSession?, now: Date) -> String? {
         if heroFocus == .weekly, let quota = data.quota {
-            if let manualResetTarget, data.pace?.planEndsAt == manualResetTarget {
+            if data.usesManualResetTarget, let manualResetTarget {
                 return "Reset target \(DashboardFormat.dateTime(manualResetTarget))"
             }
             return "Resets \(DashboardFormat.day(quota.resetsAt)) at \(DashboardFormat.time(quota.resetsAt))"
@@ -269,6 +270,7 @@ struct Dashboard: View {
     private func weeklyContent(_ quota: QuotaSample, width: CGFloat, now: Date) -> some View {
         WeeklyQuotaContent(quota: quota, pace: data.pace, shortQuota: data.shortQuota,
                            targetDisplay: targetDisplay, manualResetTarget: manualResetTarget,
+                           usesManualResetTarget: data.usesManualResetTarget,
                            demoNow: data.isDemo ? quota.observedAt : nil, changeResetTarget: changeResetTarget,
                            width: width, now: now)
     }
@@ -674,18 +676,14 @@ private struct WeeklyQuotaContent: View {
     let shortQuota: QuotaSample?
     let targetDisplay: WeeklyTargetDisplay
     let manualResetTarget: Date?
+    let usesManualResetTarget: Bool
     let demoNow: Date?
-    let changeResetTarget: (Date?, Date) -> Bool
+    let changeResetTarget: (Date?) -> Bool
     let width: CGFloat
     let now: Date
     @ViewState private var detailsExpanded = false
 
     private var action: PaceAction { .weekly(pace: pace, quota: quota, now: now) }
-
-    private var usesManualResetTarget: Bool {
-        guard let manualResetTarget else { return false }
-        return pace?.planEndsAt == manualResetTarget
-    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -823,12 +821,12 @@ private struct ResetTargetDetails: View {
     let manualTarget: Date?
     let usesManualTarget: Bool
     let demoNow: Date?
-    let changeTarget: (Date?, Date) -> Bool
+    let changeTarget: (Date?) -> Bool
     @StateObject private var draft = ResetTargetDraft()
 
     var body: some View {
         let now = demoNow ?? Date()
-        let canSetTarget = ResetTargetDraft.nextMinute(after: now) < accountReset
+        let canEdit = manualTarget != nil || ResetTargetDraft.nextMinute(after: now) < accountReset
 
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 14) {
@@ -846,13 +844,12 @@ private struct ResetTargetDetails: View {
 
                 Button(manualTarget == nil ? "Set reset target" : "Edit reset target") {
                     let now = demoNow ?? Date()
-                    guard ResetTargetDraft.nextMinute(after: now) < accountReset else { return }
                     draft.begin(accountReset: accountReset, manualTarget: manualTarget, now: now)
                 }
                 .graphiteButton(.secondary)
                 .fixedSize()
-                .disabled(!canSetTarget)
-                .help(canSetTarget ? "Plan around an earlier manual reset" : "The quota window has ended or closes too soon to set a target")
+                .disabled(!canEdit)
+                .help(canEdit ? "Plan around an earlier manual reset" : "The quota window has ended or closes too soon to set a target")
             }
 
             if let manualTarget {
@@ -863,6 +860,8 @@ private struct ResetTargetDetails: View {
                         Text("Target passed. Pacing uses the scheduled account reset.")
                     } else if usesManualTarget {
                         Text("Pacing uses this target.")
+                    } else if manualTarget >= accountReset {
+                        Text("Target saved. Pacing uses the scheduled account reset.")
                     }
                 }
                 .font(.system(size: 16))
@@ -870,7 +869,7 @@ private struct ResetTargetDetails: View {
             }
         }
         .sheet(isPresented: $draft.isPresented) {
-            ResetTargetEditor(draft: draft, demoNow: demoNow, changeTarget: changeTarget)
+            ResetTargetEditor(draft: draft, accountReset: accountReset, demoNow: demoNow, changeTarget: changeTarget)
         }
     }
 }
@@ -879,11 +878,9 @@ private final class ResetTargetDraft: ObservableObject {
     @Published var isPresented = false
     @Published var selection = Date.distantFuture
     @Published var windowChanged = false
-    private(set) var accountReset = Date.distantPast
     private(set) var hasTarget = false
 
     func begin(accountReset: Date, manualTarget: Date?, now: Date) {
-        self.accountReset = accountReset
         hasTarget = manualTarget != nil
         windowChanged = false
         let nextMinute = Self.nextMinute(after: now)
@@ -903,8 +900,9 @@ private final class ResetTargetDraft: ObservableObject {
 
 private struct ResetTargetEditor: View {
     @ObservedObject var draft: ResetTargetDraft
+    let accountReset: Date
     let demoNow: Date?
-    let changeTarget: (Date?, Date) -> Bool
+    let changeTarget: (Date?) -> Bool
 
     var body: some View {
         TimelineView(.periodic(from: .now, by: 30)) { timeline in
@@ -920,12 +918,12 @@ private struct ResetTargetEditor: View {
                 Text("Manual reset target")
                     .font(.title2.weight(.semibold))
                     .accessibilityAddTraits(.isHeader)
-                Text("Use your manual reset in Codex by this time. The target applies to this quota window.")
+                Text("Use your manual reset in Codex by this time. Pace keeps your chosen date across usage refreshes.")
                     .foregroundStyle(Graphite.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Text("Scheduled account reset · \(DashboardFormat.dateTime(draft.accountReset))")
+            Text("Scheduled account reset · \(DashboardFormat.dateTime(accountReset))")
                 .font(.callout)
 
             DatePicker("Date and time", selection: $draft.selection,
@@ -946,7 +944,6 @@ private struct ResetTargetEditor: View {
                 if draft.hasTarget {
                     Button("Clear target") { commit(nil) }
                         .graphiteButton(.danger)
-                        .disabled(draft.windowChanged)
                 }
                 Spacer()
                 Button("Cancel") { draft.isPresented = false }
@@ -970,12 +967,12 @@ private struct ResetTargetEditor: View {
     private func validationMessage(now: Date) -> String? {
         if draft.windowChanged { return "The quota window changed. Reopen the editor for the current window." }
         if draft.target <= now { return "Choose a date and time in the future." }
-        if draft.target >= draft.accountReset { return "Choose a time before the scheduled account reset." }
+        if draft.target >= accountReset { return "Choose a time before the scheduled account reset." }
         return nil
     }
 
     private func commit(_ target: Date?) {
-        if changeTarget(target, draft.accountReset) {
+        if changeTarget(target) {
             draft.isPresented = false
         } else {
             draft.windowChanged = true
