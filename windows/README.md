@@ -14,7 +14,7 @@ Codex Pace uses WinUI 3 on Windows 11 and follows Windows light or dark mode. Se
 - **Set reset target** sets a planning deadline. Redeem the reset in Codex.
 - **Weekly quota** puts actual usage beside the target by now. The progress bar marks that target for the selected work days.
 - Choose **Session** or **Weekly** in the quota card. Use **Used** or **Left** to choose how the app shows quota and targets.
-- Look under **Next turn** for model and effort suggestions and advice on using **Fast** or **Standard** for supported models. Pace can also tell you to slow down when a fresh reading puts your session target or weekly limit within 30 minutes. Use **Schedule → Send test notification** to check that Windows can show alerts.
+- Look under **Pacing advice** to see when to keep your pace, slow down, or pause. Pace can also tell you to slow down when a fresh reading puts your session target or weekly limit within 30 minutes. Use **Schedule → Send test notification** to check that Windows can show alerts.
 
 Settings and observed quota history stay in `%LOCALAPPDATA%\Codex Pace`. The Windows edition keeps its own local schedule and preferences.
 

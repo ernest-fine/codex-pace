@@ -149,7 +149,7 @@ internal sealed record DashboardData(
     BudgetWarning? Warning)
 {
     public SessionQuotaDelta? SessionDelta { get; init; }
-    public bool HasModelRecommendation { get; init; }
+    public bool ShowsRecommendation { get; init; }
 }
 
 internal static class QuotaDisplay

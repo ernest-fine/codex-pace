@@ -7,11 +7,9 @@ internal static class Planner
     private static readonly TimeSpan QuotaFreshness = TimeSpan.FromMinutes(45);
     private static readonly TimeSpan NotificationFreshness = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan NotificationHorizon = TimeSpan.FromMinutes(30);
-    private static readonly string[] EffortOrder = ["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"];
 
     public static DashboardData Calculate(
-        Telemetry? telemetry, IReadOnlyList<QuotaSample> history, Preferences preferences, DateTimeOffset now,
-        string? fastTradeoffCostRatio = null)
+        Telemetry? telemetry, IReadOnlyList<QuotaSample> history, Preferences preferences, DateTimeOffset now)
     {
         var quota = telemetry?.Quota;
         var shortQuota = telemetry?.ShortQuota;
@@ -30,15 +28,13 @@ internal static class Planner
         }
 
         var guidance = pace is null || quota is null ? null : GuideSession(pace, quota, now);
-        var (status, recommendation, detail, warning) = Recommend(quota, pace, deadline, now);
-        var modelAdvice = QuotaRecommendation(quota, pace, models, now, fastTradeoffCostRatio);
+        var (status, recommendation, detail, warning, show) = Recommend(quota, pace, guidance, deadline, now);
         return new DashboardData(
-            quota, shortQuota, pace, guidance, status, modelAdvice?.Setting ?? recommendation,
-            modelAdvice?.Detail ?? detail, ActivityCaption(activity, models),
+            quota, shortQuota, pace, guidance, status, recommendation, detail, ActivityCaption(activity, models),
             telemetry?.Source ?? "Connecting to Codex", telemetry?.Error, warning)
         {
             SessionDelta = SessionQuotaDelta.Calculate(quota, pace, history, now),
-            HasModelRecommendation = modelAdvice is not null
+            ShowsRecommendation = show
         };
     }
 
@@ -95,7 +91,7 @@ internal static class Planner
     {
         int minutes = Math.Max(1, (int)Math.Ceiling(untilTarget.TotalMinutes));
         string target = session is null ? "the weekly limit" : "your session target";
-        return MakeWarning(quota, "Use a lower effort or pause non-urgent turns.",
+        return MakeWarning(quota, "Run fewer turns or pause non-urgent work.",
             $"At this pace, you could reach {target} in about {minutes} min.", deadline, session) with { Title = "Slow down on Codex" };
     }
 
@@ -319,70 +315,86 @@ internal static class Planner
         return null;
     }
 
-    private static (string Status, string Recommendation, string Detail, BudgetWarning? Warning) Recommend(
-        QuotaSample? quota, Pace? pace, DateTimeOffset? deadline, DateTimeOffset now)
+    private static (string Status, string Recommendation, string Detail, BudgetWarning? Warning, bool Show) Recommend(
+        QuotaSample? quota, Pace? pace, SessionGuidance? guidance, DateTimeOffset? deadline, DateTimeOffset now)
     {
         if (quota is null)
         {
             return ("Waiting for quota", "Waiting for Codex usage",
-                "Once Codex reports your weekly allowance, your schedule and pace will appear here.", null);
+                "Once Codex reports your weekly allowance, your schedule and pace will appear here.", null, false);
         }
 
         if (quota.ResetsAt <= now)
         {
             return ("Waiting for reset data", "Refresh after the reset",
-                "The last confirmed weekly reading belongs to the previous window.", null);
+                "The last confirmed weekly reading belongs to the previous window.", null, false);
         }
 
-        if (now - quota.ObservedAt > QuotaFreshness)
+        if (!HasFreshQuota(quota, now))
         {
-            return ("Quota reading is stale", "Refresh for a current recommendation",
-                "Open or continue a Codex task as usual if a live account reading is unavailable.", null);
+            return ("Quota reading is stale", "Refresh to check your pace",
+                "Open or continue a Codex task as usual if a live account reading is unavailable.", null, false);
         }
 
         if (quota.UsedPercent >= 100)
         {
-            return ("Weekly limit reached", deadline.HasValue ? "Use your manual reset in Codex" : "Wait for the weekly reset",
-                "The latest account reading shows the weekly allowance at 100%.", null);
+            var reset = WorkClock.Local(quota.ResetsAt).ToString("ddd, d MMM HH:mm", CultureInfo.CurrentCulture);
+            return ("Weekly limit reached", $"Weekly quota resets {reset}",
+                "The latest account reading shows the weekly allowance at 100%.", null, true);
         }
 
-        if (pace?.ProjectedPercent is >= 100 && pace.SafeRate is double weeklyRate)
+        if (pace?.CurrentSession is { } active && guidance?.Action == SessionAction.Pause)
         {
-            const string recommendation = "Use a lower effort or pause non-urgent turns";
-            string when = deadline.HasValue ? "your manual reset target" : "the scheduled reset";
-            string detail = $"At this pace you could reach the weekly limit before {when}. " +
-                $"Aim for {RateAmount(weeklyRate)}% of weekly quota per work hour or less.";
-            return ("Slow down", recommendation, detail, MakeWarning(quota, recommendation, detail, pace.PlanEndsAt));
+            const string recommendation = "Pause non-urgent turns until your next session";
+            const string detail = "You’ve reached your session target.";
+            return ("Session budget used", recommendation, detail,
+                MakeWarning(quota, recommendation, detail, active.End, active), true);
         }
 
-        if (pace?.CurrentSession is { } session && pace.SessionRoomToTarget is double room &&
-            pace.SessionProjectedRoomToTarget is < -0.75 && pace.RecentRate is > 0)
+        if (pace?.ProjectedPercent is >= 100)
         {
-            const string recommendation = "Use a lower effort or pause non-urgent turns";
-            double sessionRate = Math.Max(0, room) / (session.End - now).TotalHours;
-            string detail = room > 0
-                ? $"To stay within the cumulative shift-end target, aim for {RateAmount(sessionRate)}% of weekly quota per hour."
-                : "The cumulative shift-end target has been reached. Pause non-urgent turns until your next session.";
-            return ("Session budget at risk", recommendation, detail, MakeWarning(quota, recommendation, detail, session.End, session));
+            const string recommendation = "Use Codex for urgent work only";
+            var when = deadline.HasValue ? "your reset target" : "reset";
+            var detail = SessionUsageDetail(pace) ?? $"At this pace, your weekly quota could run out before {when}.";
+            return ("Slow down", recommendation, detail, MakeWarning(quota, recommendation, detail, pace.PlanEndsAt), true);
+        }
+
+        if (pace?.CurrentSession is { } session && guidance?.Action == SessionAction.SlowDown)
+        {
+            const string recommendation = "Run fewer turns";
+            var forecast = pace.SessionProjectedRoomToTarget is < -0.75
+                ? "At this pace, you could reach your session target before the session ends." : null;
+            var detail = string.Join(" ", new[] { SessionUsageDetail(pace), forecast }.OfType<string>());
+            return ("Slow down", recommendation, detail, MakeWarning(quota, recommendation, detail, session.End, session), true);
         }
 
         if (pace?.RemainingWorkHours == 0)
         {
             return ("Workweek complete", deadline.HasValue
                     ? "No more work scheduled before your target" : "No scheduled work before reset",
-                "Any extra Codex activity will use the allowance shown above.", null);
+                "Any extra Codex activity will use the allowance shown above.", null, false);
         }
 
-        if (pace?.RecentRate is not null)
+        if (pace is not null && (pace.RecentRate is not null || guidance?.Action is SessionAction.KeepPace or SessionAction.RoomToSpeedUp))
         {
             bool ahead = quota.UsedPercent > pace.TargetPercent + 2;
             return (ahead ? "Pace is sustainable" : "On pace", "Keep this pace", ahead
                 ? "Usage is above the schedule target, and your recent pace fits the remaining allowance."
-                : "Your recent pace fits the remaining weekly allowance.", null);
+                : "Usage fits your current pacing target.", null, true);
         }
 
         return ("Learning your pace", "Waiting for more usage readings",
-            "The schedule target updates throughout the day. Forecasts need at least 30 minutes of observed work time.", null);
+            "The schedule target updates throughout the day. Forecasts need at least 30 minutes of observed work time.", null, false);
+    }
+
+    private static string? SessionUsageDetail(Pace pace)
+    {
+        if (pace.SessionBudget is not > 0 || pace.SessionUsed is not double used || pace.SessionTarget is not double target)
+            return null;
+
+        var budget = pace.SessionBudget.Value;
+        return $"{QuotaDisplay.Percent(used / budget * 100)} of your session budget used. " +
+            $"Target by now is {QuotaDisplay.Percent(target / budget * 100)}.";
     }
 
     private static BudgetWarning MakeWarning(
@@ -410,8 +422,6 @@ internal static class Planner
     private static DateTimeOffset Later(DateTimeOffset first, DateTimeOffset second) =>
         first >= second ? first : second;
 
-    private static string RateAmount(double value) => value.ToString("0.0", CultureInfo.InvariantCulture);
-
     private static string EffortName(string effort, string? model)
     {
         if (effort == "low" && model?.EndsWith("-astra", StringComparison.Ordinal) == true) return "Light";
@@ -421,44 +431,6 @@ internal static class Planner
 
     private static string ModelName(string id, IReadOnlyList<ModelOption> models) =>
         models.FirstOrDefault(model => model.Id == id)?.Name ?? id;
-
-    private static (string Setting, string Detail)? QuotaRecommendation(
-        QuotaSample? quota, Pace? pace, IReadOnlyList<ModelOption> models, DateTimeOffset now, string? fastTradeoffCostRatio)
-    {
-        if (quota is null || quota.UsedPercent >= 100 || !HasFreshQuota(quota, now)
-            || pace?.SafeRate is not double rate || !double.IsFinite(rate) || rate <= 0)
-            return null;
-
-        double left = 100 - quota.UsedPercent;
-        var (family, effort) = (left, rate) switch
-        {
-            (>= 20, >= 8) => ("-astra", "ultra"),
-            (>= 10, >= 4) => ("-astra", "max"),
-            (>= 5, >= 2) => ("-sol", "high"),
-            _ => ("-luna", "low"),
-        };
-        var model = models.FirstOrDefault(option => option.Id.EndsWith(family, StringComparison.Ordinal))
-            ?? models.FirstOrDefault(option => option.IsDefault) ?? models.FirstOrDefault();
-        if (model is null) return null;
-
-        var standardEffort = EffortOrder.Take(Array.IndexOf(EffortOrder, effort) + 1).LastOrDefault(model.Efforts.Contains)
-            ?? model.DefaultEffort ?? model.Efforts.FirstOrDefault();
-        bool supportsFast = model.SupportsFastMode == true;
-        var lowerEffort = standardEffort is null ? null
-            : EffortOrder.Take(Array.IndexOf(EffortOrder, standardEffort)).LastOrDefault(model.Efforts.Contains);
-
-        // Compare lower effort at Fast with higher effort at Standard, normalized to 1.
-        string? configuredRatio = fastTradeoffCostRatio ?? Environment.GetEnvironmentVariable("CODEX_PACE_FAST_TRADEOFF_COST_RATIO");
-        double estimatedFastCost = double.TryParse(configuredRatio, NumberStyles.Float, CultureInfo.InvariantCulture, out var ratio)
-            && double.IsFinite(ratio) && ratio > 0 ? ratio : 1;
-        bool useFast = supportsFast && left >= 30 && rate >= 12 && (lowerEffort is null || estimatedFastCost < 1);
-        var level = useFast ? lowerEffort ?? standardEffort : standardEffort;
-        string? speed = supportsFast ? (useFast ? "Fast" : "Standard") : null;
-        string settings = string.Join(" · ", new[] { model.Name, level is null ? null : EffortName(level, model.Id), speed }
-            .Where(value => value is not null));
-        string detail = $"Based on {QuotaDisplay.Percent(left)} of weekly quota left, or {QuotaDisplay.Percent(rate)} per work hour before reset.";
-        return ($"Use {settings}", detail);
-    }
 
     private static string ActivityCaption(Activity? activity, IReadOnlyList<ModelOption> models)
     {

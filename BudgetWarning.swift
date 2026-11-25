@@ -72,7 +72,7 @@ private func imminentWarning(scope: BudgetWarning.Scope, name: String, date: Dat
         ? "You’ve reached your \(name)."
         : "At this pace, you could reach your \(name) in about \(Int(ceil(remaining / 60))) min."
     return BudgetWarning(scope: scope, reset: reset,
-                         recommendation: reached ? "Pause non-urgent turns." : "Use a lower effort or pause non-urgent turns.",
+                         recommendation: reached ? "Pause non-urgent turns." : "Run fewer turns or pause non-urgent work.",
                          detail: detail, deadline: deadline,
                          title: reached ? "Codex \(name) reached" : "Slow down on Codex")
 }

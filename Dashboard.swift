@@ -29,10 +29,9 @@ struct DashboardData {
     var isDemo: Bool
     var error: String?
     var budgetWarning: BudgetWarning? = nil
-    var hasModelRecommendation = false
 
     var showsRecommendation: Bool {
-        budgetWarning != nil || recommendationTone == .critical || hasModelRecommendation
+        budgetWarning != nil || recommendationTone == .critical || recommendationTone == .healthy
     }
 }
 
@@ -151,8 +150,7 @@ struct Dashboard: View {
                 if data.quota == nil, let shortQuota = data.shortQuota {
                     ShortQuotaSummary(quota: shortQuota)
                 }
-                if data.showsRecommendation &&
-                    (data.hasModelRecommendation || heroFocus == .session || data.budgetWarning?.isWeekly != false) {
+                if data.showsRecommendation {
                     GraphiteDivider()
                     HeroRecommendation(data: data)
                 }
@@ -482,7 +480,7 @@ private struct CurrentSessionContent: View {
 private struct QuotaUsageBar: View {
     let progress: QuotaProgress
     var thickness: CGFloat = 8
-    var paceColor: Color?
+    var weeklyAction: PaceAction?
 
     var body: some View {
         GeometryReader { geometry in
@@ -492,7 +490,7 @@ private struct QuotaUsageBar: View {
                     .fill(Graphite.track)
                     .frame(height: thickness)
                 Capsule()
-                    .fill(paceColor ?? progress.fillColor)
+                    .fill(progress.fillColor(weeklyAction: weeklyAction))
                     .frame(width: width * progress.barFraction, height: thickness)
                 if let target = progress.markerFraction {
                     let marker = width * target
@@ -595,13 +593,21 @@ private struct HeroRecommendation: View {
 
     var body: some View {
         HStack(alignment: .firstTextBaseline, spacing: 12) {
-            Text(data.budgetWarning != nil || data.hasModelRecommendation ? "Next turn" : data.status)
+            Text(data.quota?.usedPercent ?? 0 >= 100 ? data.status : "Pacing advice")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundStyle(Graphite.muted)
                 .fixedSize()
-            Text(data.recommendation)
-                .font(.system(size: 18, weight: .semibold))
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 4) {
+                Text(data.recommendation)
+                    .font(.system(size: 18, weight: .semibold))
+                    .fixedSize(horizontal: false, vertical: true)
+                if data.recommendationTone == .caution || data.budgetWarning?.isWeekly == true {
+                    Text(data.recommendationDetail)
+                        .font(.system(size: 16))
+                        .foregroundStyle(Graphite.muted)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
         }
         .accessibilityElement(children: .combine)
         .help(data.recommendationDetail)
@@ -746,7 +752,7 @@ private struct WeeklyQuotaContent: View {
                 }
             }
 
-            QuotaUsageBar(progress: progress, thickness: 10, paceColor: action == .keepPace ? Graphite.quotaUsage : nil)
+            QuotaUsageBar(progress: progress, thickness: 10, weeklyAction: action)
                 .accessibilityRepresentation {
                     ProgressView(value: min(100, max(0, actual)), total: 100)
                         .accessibilityLabel("Weekly allowance \(targetDisplay.rawValue)")
