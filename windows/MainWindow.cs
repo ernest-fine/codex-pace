@@ -52,6 +52,7 @@ internal sealed class MainWindow : Window
     private readonly TextBlock planEmpty;
     private readonly TextBlock suggestionLabel;
     private readonly TextBlock suggestionText;
+    private readonly TextBlock suggestionDetail;
     private readonly StackPanel suggestion;
     private readonly TextBlock shortQuota;
 
@@ -90,6 +91,7 @@ internal sealed class MainWindow : Window
         planEmpty = Text(secondary: true);
         suggestionLabel = Text(size: 16, secondary: true);
         suggestionText = Text(size: 18, strong: true);
+        suggestionDetail = Text(size: 16, secondary: true);
         shortQuota = Text(size: 16, secondary: true);
         planScroller = new ScrollViewer
         {
@@ -105,8 +107,9 @@ internal sealed class MainWindow : Window
         nextTurn.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         nextTurn.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         nextTurn.Children.Add(suggestionLabel);
-        Grid.SetColumn(suggestionText, 1);
-        nextTurn.Children.Add(suggestionText);
+        var suggestionCopy = Stack(4, suggestionText, suggestionDetail);
+        Grid.SetColumn(suggestionCopy, 1);
+        nextTurn.Children.Add(suggestionCopy);
         suggestion = Stack(10, Rule(), nextTurn);
 
         used.Click += (_, _) => SetQuotaMode(true);
@@ -216,11 +219,12 @@ internal sealed class MainWindow : Window
         Set(shortQuota, state.ShortQuota is { } shortWindow
             ? $"{Duration(TimeSpan.FromMinutes(shortWindow.WindowMinutes))} limit · {Percent(shortWindow.UsedPercent)} used · Resets {Stamp(shortWindow.ResetsAt)}"
             : null);
-        bool showAdvice = state.HasModelRecommendation || state.Quota?.UsedPercent >= 100 || state.Warning is { } warning &&
-            (!showWeekly || warning.Key.StartsWith("weekly.", StringComparison.Ordinal));
-        suggestion.Visibility = showAdvice ? Visibility.Visible : Visibility.Collapsed;
-        Set(suggestionLabel, state.Warning is null && !state.HasModelRecommendation ? state.Status : "Next turn");
+        suggestion.Visibility = state.ShowsRecommendation ? Visibility.Visible : Visibility.Collapsed;
+        Set(suggestionLabel, state.Quota?.UsedPercent >= 100 ? state.Status : "Pacing advice");
         Set(suggestionText, state.Recommendation);
+        bool showDetail = state.Guidance?.Action == SessionAction.SlowDown ||
+            state.Warning?.Key.StartsWith("weekly.", StringComparison.Ordinal) == true;
+        Set(suggestionDetail, showDetail ? state.RecommendationDetail : null);
         AutomationProperties.SetHelpText(suggestionText, state.RecommendationDetail);
         ToolTipService.SetToolTip(suggestionText, string.IsNullOrWhiteSpace(state.RecommendationDetail) ? null : state.RecommendationDetail);
     }

@@ -34,7 +34,9 @@ enum Graphite {
 }
 
 extension QuotaProgress {
-    var fillColor: Color {
+    func fillColor(weeklyAction: PaceAction? = nil) -> Color {
+        if weeklyAction == .checkUsage { return Graphite.muted }
+        if weeklyAction == .keepPace { return Graphite.quotaUsage }
         if carryoverCredit != nil { return Graphite.quotaCredit }
         return switch level {
         case .unknown: Graphite.muted

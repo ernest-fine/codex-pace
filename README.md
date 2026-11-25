@@ -1,6 +1,6 @@
 # Codex Pace
 
-Codex Pace shows how much of your weekly Codex quota you’ve used and how much is available for each work session. It compares your usage with your plan and suggests a model, effort, and speed for your next turn.
+Codex Pace shows how much of your weekly Codex quota you’ve used and how much is available for each work session. It compares your usage with your plan and shows when to keep pace, slow down, or pause.
 
 ## Run Codex Pace
 
@@ -8,9 +8,9 @@ Sign in to Codex on the computer where you’ll run the tracker.
 
 | Platform | Download | How to run |
 | --- | --- | --- |
-| macOS 14 or later on Apple silicon | [macOS 1.23.12](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.12/Codex-Pace-macOS-arm64.zip) | Extract the ZIP and open **Codex Pace.app**. The menu bar follows the quota view you select. |
-| Windows 11 on Intel or AMD | [Windows x64 1.23.12](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.12/Codex-Pace-Windows-x64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
-| Windows 11 on Arm | [Windows Arm64 1.23.12](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.12/Codex-Pace-Windows-arm64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
+| macOS 14 or later on Apple silicon | [macOS 1.23.13](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.13/Codex-Pace-macOS-arm64.zip) | Extract the ZIP and open **Codex Pace.app**. The menu bar follows the quota view you select. |
+| Windows 11 on Intel or AMD | [Windows x64 1.23.13](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.13/Codex-Pace-Windows-x64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
+| Windows 11 on Arm | [Windows Arm64 1.23.13](https://github.com/ernest-fine/codex-pace/releases/download/v1.23.13/Codex-Pace-Windows-arm64.zip) | Extract the ZIP and run `CodexPace.exe` from the extracted folder. |
 
 The Windows ZIP includes the files the app needs. Keep them with `CodexPace.exe`. macOS may ask you to approve the app in Privacy & Security the first time you open it. [Apple’s first-launch guidance](https://support.apple.com/en-us/102445)
 
@@ -22,8 +22,9 @@ Keep Codex Pace running for background updates and notifications. Pace checks lo
 - Choose **Session** or **Weekly** in the quota card. Session shows the change since the previous reading as a percentage of your session quota when both readings are available. On macOS, the Session view uses the share of weekly quota planned for that session. Using more than planned leaves less for the next session. In **Used**, unused quota from earlier sessions shows up as **Carryover credit** until it’s spent. The dashboard and menu bar show remaining credit as a blue segment before the scheduled quota, with the target marker on the scheduled portion. **25% credit** is equivalent to **125% Left**. The signed Used balance is available in the carryover tooltip and menu bar details.
 - Open **Edit sessions** on macOS or **Schedule → Edit sessions** on Windows. Choose **Edited days** to set each day’s hours or **Entire week** to use one schedule for all seven days. Use **Work days** to choose which days count toward your plan. The **Work sessions** table shows the quota target at the end of each session.
 - In **Edit sessions**, choose **Save as template** to keep a named copy of the session names and hours on screen. Choose **Apply template** to fill the selected day or entire-week draft, then save the schedule to use it. Templates are stored locally and are available the next time you open Pace.
-- Look under **Next turn** for a model and effort suggestion based on weekly quota left and the scheduled work time before your reset target. For supported models, Pace also suggests **Fast** or **Standard**. Pace can also notify you once per target when your recent usage puts it within 30 minutes.
-- When Fast fits the quota plan, Pace compares the recommended effort at Standard with the next lower supported effort at Fast on the same model. Pace assumes equal cost by default and prefers the higher effort at Standard.
+- The macOS menu bar shows your rounded reading and target by now, such as `24/28`, above the progress bar. Open its menu for the exact reading, view, target, and pacing advice.
+- **Pacing advice** tells you when to keep your pace, run fewer turns, save remaining quota for urgent work, or pause non-urgent work until the next session.
+- Pace can notify you once per target when recent usage puts it within 30 minutes.
 - Use **Set reset target** to plan for an earlier deadline. Pace keeps the date you choose across refreshes and restarts, including when Codex reports a new quota window. If the scheduled reset comes first, Pace uses it and keeps your future target for the next window. Redeem the reset in Codex at the time you choose.
 
 Schedules and reset times use your computer’s local time zone. The app follows your computer’s light or dark appearance.
@@ -33,8 +34,6 @@ Schedules and reset times use your computer’s local time zone. The app follows
 Codex Pace reads your signed-in account’s quota through Codex App Server. It can fall back to recent readings in the local Codex session history. The dashboard shows the source and age of the reading. Quota history, preferences, and your schedule are stored on your computer.
 
 If Codex Pace needs help finding the CLI, set `CODEX_PACE_CODEX` to the full path of the native Codex executable.
-
-Codex reports quota use in aggregate. If you have your own estimate, set `CODEX_PACE_FAST_TRADEOFF_COST_RATIO` to the estimated quota cost of the lower-effort Fast option divided by the cost of the higher-effort Standard option. The default is `1`, which means equal cost. A ratio below `1`, such as `0.8`, lets the cheaper Fast option win when it fits the quota plan.
 
 ## Build from source
 
