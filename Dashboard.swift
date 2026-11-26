@@ -223,7 +223,7 @@ struct Dashboard: View {
 
     private var identity: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Codex Pace")
+            Text("Codex Ticker")
                 .font(.system(size: 27, weight: .semibold))
                 .tracking(-0.7)
                 .accessibilityAddTraits(.isHeader)
@@ -924,7 +924,7 @@ private struct ResetTargetEditor: View {
                 Text("Manual reset target")
                     .font(.title2.weight(.semibold))
                     .accessibilityAddTraits(.isHeader)
-                Text("Use your manual reset in Codex by this time. Pace keeps your chosen date across usage refreshes.")
+                Text("Use your manual reset in Codex by this time. Ticker keeps your chosen date across usage refreshes.")
                     .foregroundStyle(Graphite.muted)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -1054,7 +1054,7 @@ private struct WorkPlanPanel: View {
                     GraphiteSegments("Work sessions quota view", selection: $targetDisplay, options: [
                         ("Used", .used), ("Left", .left),
                     ])
-                    .help("Changes the quota display throughout Codex Pace")
+                    .help("Changes the quota display throughout Codex Ticker")
                 }
 
                 if pace.sessions.isEmpty {

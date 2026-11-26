@@ -12,7 +12,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace CodexPace;
+namespace CodexTicker;
 
 internal sealed class TelemetryReader
 {
@@ -337,7 +337,8 @@ internal sealed class TelemetryReader
 
     private IEnumerable<string> CodexExecutables()
     {
-        string? configured = ExpandPath(Environment.GetEnvironmentVariable("CODEX_PACE_CODEX"));
+        string? configured = ExpandPath(Environment.GetEnvironmentVariable("CODEX_TICKER_CODEX"))
+            ?? ExpandPath(Environment.GetEnvironmentVariable("CODEX_PACE_CODEX"));
         if (configured is not null && (!OperatingSystem.IsWindows()
                 || Path.GetExtension(configured).Equals(".exe", StringComparison.OrdinalIgnoreCase)))
             yield return configured;
@@ -474,7 +475,7 @@ internal sealed class TelemetryReader
         {
             var reader = new RpcLineReader(process.StandardOutput);
             await SendAsync(process.StandardInput,
-                """{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex_pace","title":"Codex Pace","version":"1.0.0"}}}""",
+                """{"id":1,"method":"initialize","params":{"clientInfo":{"name":"codex_ticker","title":"Codex Ticker","version":"1.0.0"}}}""",
                 cancellationToken).ConfigureAwait(false);
 
             bool initialized = false;

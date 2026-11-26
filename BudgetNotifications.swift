@@ -99,7 +99,7 @@ final class BudgetNotifications: NSObject, UNUserNotificationCenterDelegate {
         case disabled
 
         var errorDescription: String? {
-            "Allow Codex Pace notifications in System Settings → Notifications, then try again."
+            "Allow Codex Ticker notifications in System Settings → Notifications, then try again."
         }
     }
 }

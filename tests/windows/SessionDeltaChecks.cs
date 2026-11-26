@@ -1,5 +1,5 @@
 using System.Globalization;
-using CodexPace;
+using CodexTicker;
 
 internal static class SessionDeltaChecks
 {

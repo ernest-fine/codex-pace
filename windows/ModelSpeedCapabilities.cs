@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace CodexPace;
+namespace CodexTicker;
 
 internal static class ModelSpeedCapabilities
 {

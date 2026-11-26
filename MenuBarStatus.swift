@@ -115,6 +115,6 @@ struct MenuBarStatusLabel: View {
     var body: some View {
         Image(nsImage: summary.image(dark: colorScheme == .dark))
             .renderingMode(summary.label == nil ? .template : .original)
-            .accessibilityLabel("Codex Pace, \(summary.title)")
+            .accessibilityLabel("Codex Ticker, \(summary.title)")
     }
 }

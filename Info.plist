@@ -3,21 +3,22 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleDisplayName</key>
-	<string>Codex Pace</string>
+	<string>Codex Ticker</string>
 	<key>CFBundleExecutable</key>
-	<string>CodexPace</string>
+	<string>CodexTicker</string>
 	<key>CFBundleIconFile</key>
 	<string>AppIcon.icns</string>
 	<key>CFBundleIdentifier</key>
+	<!-- Stable identity for preferences and notification permissions across upgrades. -->
 	<string>local.codex-pace</string>
 	<key>CFBundleName</key>
-	<string>Codex Pace</string>
+	<string>Codex Ticker</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>1.23.13</string>
+	<string>1.23.14</string>
 	<key>CFBundleVersion</key>
-	<string>35</string>
+	<string>36</string>
 	<key>LSMinimumSystemVersion</key>
 	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>

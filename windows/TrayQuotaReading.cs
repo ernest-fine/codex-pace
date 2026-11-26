@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace CodexPace;
+namespace CodexTicker;
 
 internal enum TrayQuotaTone { Unknown, WithinTarget, SlightlyOverTarget, OverTarget }
 
@@ -74,7 +74,7 @@ internal sealed record TrayQuotaReading(
     }
 
     private static TrayQuotaReading Unavailable(string period, string note) =>
-        new(period, "Codex Pace", $"{period} · {note}", null, null, null, null, TrayQuotaTone.Unknown, note);
+        new(period, "Codex Ticker", $"{period} · {note}", null, null, null, null, TrayQuotaTone.Unknown, note);
 
     private static bool ValidAmount(double amount) => double.IsFinite(amount) && amount is >= 0 and <= 100;
 
