@@ -2,7 +2,7 @@ using System.Runtime.InteropServices;
 using Microsoft.UI.Dispatching;
 using Windows.Graphics;
 
-namespace CodexPace;
+namespace CodexTicker;
 
 internal sealed class TrayIcon : IDisposable
 {
@@ -47,7 +47,7 @@ internal sealed class TrayIcon : IDisposable
     private (double? Amount, double? Marker, TrayQuotaTone Tone, int Size)? meterState;
     private RectInt32 pendingBounds;
     private long ignoreSelectUntil;
-    private string caption = "Codex Pace";
+    private string caption = "Codex Ticker";
     private bool refreshing;
     private bool registered;
     private bool usesVersion4;

@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace CodexPace;
+namespace CodexTicker;
 
 internal sealed record SessionQuotaDelta(double UsedPercentagePoints, double LeftPercentagePoints)
 {

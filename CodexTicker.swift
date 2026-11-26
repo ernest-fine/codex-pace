@@ -248,7 +248,7 @@ final class TrackerStore: ObservableObject {
 }
 
 @main
-struct CodexPaceApp: App {
+struct CodexTickerApp: App {
     @StateObject private var store = TrackerStore()
     @Environment(\.openWindow) private var openWindow
     @AppStorage("weeklyTargetDisplay") private var targetDisplay: WeeklyTargetDisplay = .left
@@ -258,7 +258,7 @@ struct CodexPaceApp: App {
         let menuBarSummary = MenuBarSummary.make(
             data: store.data, now: Date(), focus: heroFocus, display: targetDisplay
         )
-        Window("Codex Pace", id: "dashboard") {
+        Window("Codex Ticker", id: "dashboard") {
             Dashboard(
                 data: store.data, schedule: $store.schedule, sessionTemplates: $store.sessionTemplates,
                 workdays: store.workdays, changeWorkdays: store.changeWorkdays,
@@ -291,7 +291,7 @@ struct CodexPaceApp: App {
             Button("Refresh usage", action: store.refresh)
                 .disabled(store.data.isRefreshing)
             Divider()
-            Button("Quit Codex Pace") { NSApp.terminate(nil) }
+            Button("Quit Codex Ticker") { NSApp.terminate(nil) }
                 .keyboardShortcut("q")
         } label: {
             MenuBarStatusLabel(summary: menuBarSummary)

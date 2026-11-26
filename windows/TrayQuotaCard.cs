@@ -16,14 +16,14 @@ using Windows.UI;
 using Windows.UI.ViewManagement;
 using WinRT.Interop;
 
-namespace CodexPace;
+namespace CodexTicker;
 
 internal sealed class TrayQuotaCard : IDisposable
 {
     private const double CardWidth = 310;
     private const int ColorButtonFace = 15;
     private const int ColorHighlight = 13;
-    private readonly Window window = new() { Title = "Codex Pace quota" };
+    private readonly Window window = new() { Title = "Codex Ticker quota" };
     private readonly ContentControl root = new()
     {
         IsTabStop = true,
@@ -334,7 +334,7 @@ internal sealed class TrayQuotaCard : IDisposable
             TrayQuotaTone.OverTarget => "Over target",
             _ => "Quota status unavailable"
         };
-        AutomationProperties.SetName(root, reading is null ? "Codex Pace quota"
+        AutomationProperties.SetName(root, reading is null ? "Codex Ticker quota"
             : $"{reading.Title}. {reading.Caption}. {status}. {reading.Note}");
     }
 

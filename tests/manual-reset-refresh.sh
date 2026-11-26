@@ -2,8 +2,8 @@
 set -euo pipefail
 cd -- "${0:A:h}/.."
 
-scratch=$(mktemp -d "${TMPDIR:-/tmp}/pace-reset-test.XXXXXXXX")
-test_bundle="local.codex-pace.test-$(uuidgen)"
+scratch=$(mktemp -d "${TMPDIR:-/tmp}/ticker-reset-test.XXXXXXXX")
+test_bundle="local.codex-ticker.test-$(uuidgen)"
 cleanup() {
     defaults delete "$test_bundle" >/dev/null 2>&1 || true
     rm -f -- "$HOME/Library/Preferences/$test_bundle.plist"
@@ -18,15 +18,15 @@ mkdir -p "$app/MacOS" "$profile/.codex/archived_sessions" "$profile/Library/Pref
 /usr/bin/plutil -insert CFBundleExecutable -string ResetTest "$app/Info.plist"
 /usr/bin/plutil -insert CFBundlePackageType -string APPL "$app/Info.plist"
 
-swiftc -parse-as-library -emit-library -emit-module -enable-testing -module-name CodexPace \
-    -module-cache-path "$scratch/modules" -emit-module-path "$scratch/CodexPace.swiftmodule" \
-    *.swift -o "$scratch/libCodexPace.dylib"
-swiftc -parse-as-library -I "$scratch" -L "$scratch" -lCodexPace -module-cache-path "$scratch/modules" \
+swiftc -parse-as-library -emit-library -emit-module -enable-testing -module-name CodexTicker \
+    -module-cache-path "$scratch/modules" -emit-module-path "$scratch/CodexTicker.swiftmodule" \
+    *.swift -o "$scratch/libCodexTicker.dylib"
+swiftc -parse-as-library -I "$scratch" -L "$scratch" -lCodexTicker -module-cache-path "$scratch/modules" \
     tests/ManualResetRefreshTests.swift -o "$app/MacOS/ResetTest"
 
 start=$(( $(date +%s) - 60 ))
 for phase in save relaunch after-clear; do
-    env -u CODEX_HOME CFFIXED_USER_HOME="$profile" CODEX_PACE_CODEX=/usr/bin/true \
+    env -u CODEX_HOME CFFIXED_USER_HOME="$profile" CODEX_TICKER_CODEX=/usr/bin/true \
         "$app/MacOS/ResetTest" "$phase" "$profile" "$start"
 done
 echo "Manual reset target survived quota refresh and relaunch."

@@ -1,16 +1,17 @@
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 
-namespace CodexPace;
+namespace CodexTicker;
 
 public partial class App : Application
 {
+    // Coordinate activation with earlier versions during upgrades.
     private const string InstanceName = @"Local\CodexPace";
     private const string ActivationName = @"Local\CodexPace.Activate";
     private Mutex? instance;
     private EventWaitHandle? activation;
     private RegisteredWaitHandle? activationWait;
-    private PaceApplication? host;
+    private TickerApplication? host;
 
     public App()
     {
@@ -38,7 +39,7 @@ public partial class App : Application
 
         var arguments = Environment.GetCommandLineArgs().Skip(1).ToArray();
         bool demo = arguments.Contains("--demo", StringComparer.Ordinal);
-        host = new PaceApplication(demo, ExitHost);
+        host = new TickerApplication(demo, ExitHost);
         var dispatcher = DispatcherQueue.GetForCurrentThread();
         activationWait = ThreadPool.RegisterWaitForSingleObject(
             activation,

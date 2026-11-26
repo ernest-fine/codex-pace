@@ -387,6 +387,7 @@ private final class TelemetryReader: @unchecked Sendable {
     private func codexBinary() -> URL? {
         let environment = ProcessInfo.processInfo.environment
         let paths = [
+            environment["CODEX_TICKER_CODEX"],
             environment["CODEX_PACE_CODEX"],
             "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
             "/Applications/Codex.app/Contents/Resources/codex",
@@ -461,7 +462,7 @@ private final class AppServerRead: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
         send(["id": 1, "method": "initialize", "params": [
-            "clientInfo": ["name": "codex_pace", "title": "Codex Pace", "version": "1.0.0"]
+            "clientInfo": ["name": "codex_ticker", "title": "Codex Ticker", "version": "1.0.0"]
         ]])
     }
 

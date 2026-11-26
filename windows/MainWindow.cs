@@ -12,7 +12,7 @@ using Windows.Graphics;
 using Windows.UI;
 using Windows.UI.ViewManagement;
 
-namespace CodexPace;
+namespace CodexTicker;
 
 internal sealed class MainWindow : Window
 {
@@ -75,7 +75,7 @@ internal sealed class MainWindow : Window
     public MainWindow(Preferences preferences)
     {
         this.preferences = preferences;
-        Title = "Codex Pace";
+        Title = "Codex Ticker";
         AppWindow.Resize(new SizeInt32(1000, 820));
         appearance = ThemeSettings.CreateForWindowId(AppWindow.Id);
         root.Background = surface;
@@ -131,7 +131,7 @@ internal sealed class MainWindow : Window
         menu.Items.Add(test);
         settings.Flyout = menu;
 
-        var title = Text("Codex Pace", 27, strong: true);
+        var title = Text("Codex Ticker", 27, strong: true);
         AutomationProperties.SetHeadingLevel(title, AutomationHeadingLevel.Level1);
         AutomationProperties.SetHeadingLevel(heroTitle, AutomationHeadingLevel.Level2);
         ToolTipService.SetToolTip(refresh, "Check for the latest Codex usage");

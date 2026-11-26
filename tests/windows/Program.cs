@@ -1,5 +1,5 @@
 using System.Text.Json;
-using CodexPace;
+using CodexTicker;
 
 internal static class ScheduleChecks
 {

@@ -4,9 +4,9 @@ using Microsoft.UI.Windowing;
 using WinRT.Interop;
 using Windows.Graphics;
 
-namespace CodexPace;
+namespace CodexTicker;
 
-internal sealed class PaceApplication
+internal sealed class TickerApplication
 {
     private readonly MainWindow window;
     private readonly TrayIcon tray;
@@ -28,7 +28,7 @@ internal sealed class PaceApplication
     private static readonly DateTimeOffset DemoTime = WorkClock.At(new DateOnly(2026, 11, 18), 900);
     private DateTimeOffset Now => demo ? DemoTime : DateTimeOffset.UtcNow;
 
-    public PaceApplication(bool demo, Action exit)
+    public TickerApplication(bool demo, Action exit)
     {
         this.demo = demo;
         this.exit = exit;
@@ -281,17 +281,18 @@ internal sealed record LocalState
 
 internal sealed class LocalStateStore
 {
-    private static readonly string PathToState = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-        "Codex Pace", "settings.json");
+    private static readonly string AppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+    private static readonly string PathToState = Path.Combine(AppData, "Codex Ticker", "settings.json");
+    private static readonly string LegacyPathToState = Path.Combine(AppData, "Codex Pace", "settings.json");
 
     public LocalState Load()
     {
         try
         {
-            if (File.Exists(PathToState))
+            var source = File.Exists(PathToState) ? PathToState : LegacyPathToState;
+            if (File.Exists(source))
             {
-                using var file = File.OpenRead(PathToState);
+                using var file = File.OpenRead(source);
                 if (file.Length <= 8 * 1024 * 1024 && JsonSerializer.Deserialize<LocalState>(file) is { } state)
                 {
                     var preferences = state.Preferences ?? new Preferences();

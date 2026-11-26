@@ -1,4 +1,4 @@
-using CodexPace;
+using CodexTicker;
 
 internal static class TrayReadingChecks
 {
@@ -150,7 +150,7 @@ internal static class TrayReadingChecks
 
     private static void NoNumbers(TrayQuotaReading reading)
     {
-        Equal("Codex Pace", reading.Caption);
+        Equal("Codex Ticker", reading.Caption);
         Equal<string?>(null, reading.Actual);
         Equal<string?>(null, reading.Target);
         Equal<double?>(null, reading.Amount);

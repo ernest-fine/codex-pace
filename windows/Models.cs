@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Text.Json.Serialization;
 
-namespace CodexPace;
+namespace CodexTicker;
 
 internal sealed record QuotaSample(DateTimeOffset ObservedAt, DateTimeOffset ResetsAt, int WindowMinutes, double UsedPercent);
 internal sealed record ModelOption(string Id, string Name, IReadOnlyList<string> Efforts, string? DefaultEffort,

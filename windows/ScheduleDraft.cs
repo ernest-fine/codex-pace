@@ -1,4 +1,4 @@
-namespace CodexPace;
+namespace CodexTicker;
 
 internal enum ScheduleScope { EditedDays, EntireWeek }
 

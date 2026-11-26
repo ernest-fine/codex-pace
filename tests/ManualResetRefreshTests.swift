@@ -1,5 +1,5 @@
 import Foundation
-@testable import CodexPace
+@testable import CodexTicker
 
 @main
 @MainActor
@@ -23,7 +23,7 @@ struct ManualResetRefreshTests {
         guard args.count == 4, let start = TimeInterval(args[3]),
               FileManager.default.homeDirectoryForCurrentUser.resolvingSymlinksInPath().path ==
                 URL(fileURLWithPath: args[2]).resolvingSymlinksInPath().path,
-              Bundle.main.bundleIdentifier?.hasPrefix("local.codex-pace.test-") == true else {
+              Bundle.main.bundleIdentifier?.hasPrefix("local.codex-ticker.test-") == true else {
             throw Failure("Run tests/manual-reset-refresh.sh to create isolated preferences and quota readings.")
         }
         let fixture = URL(fileURLWithPath: args[2]).appendingPathComponent(".codex/archived_sessions")

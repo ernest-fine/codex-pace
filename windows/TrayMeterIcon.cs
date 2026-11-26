@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace CodexPace;
+namespace CodexTicker;
 
 internal static class TrayMeterIcon
 {

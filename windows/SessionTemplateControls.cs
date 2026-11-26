@@ -3,7 +3,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Controls;
 
-namespace CodexPace;
+namespace CodexTicker;
 
 internal sealed class SessionTemplateControls
 {

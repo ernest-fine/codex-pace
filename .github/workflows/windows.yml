@@ -41,14 +41,14 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Build the Windows app
         run: |
-          $output = Join-Path $env:RUNNER_TEMP "CodexPace"
-          dotnet publish windows/CodexPace.csproj -c Release -r "win-$env:ARCH" --self-contained true "-p:Platform=$env:PLATFORM" -o $output
+          $output = Join-Path $env:RUNNER_TEMP "CodexTicker"
+          dotnet publish windows/CodexTicker.csproj -c Release -r "win-$env:ARCH" --self-contained true "-p:Platform=$env:PLATFORM" -o $output
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          if (-not (Test-Path (Join-Path $output "CodexPace.pri"))) { throw "The WinUI application resource index is missing from the published app." }
-          "PACE_OUTPUT=$output" >> $env:GITHUB_ENV
+          if (-not (Test-Path (Join-Path $output "CodexTicker.pri"))) { throw "The WinUI application resource index is missing from the published app." }
+          "TICKER_OUTPUT=$output" >> $env:GITHUB_ENV
       - name: Verify that tray activation opens and closes the quota card
         run: |
-          $app = Start-Process (Join-Path $env:PACE_OUTPUT "CodexPace.exe") -ArgumentList "--demo", "--check-tray" -WorkingDirectory $env:PACE_OUTPUT -PassThru
+          $app = Start-Process (Join-Path $env:TICKER_OUTPUT "CodexTicker.exe") -ArgumentList "--demo", "--check-tray" -WorkingDirectory $env:TICKER_OUTPUT -PassThru
           try {
             if (-not $app.WaitForExit(45000)) { throw "The tray quota card check timed out." }
             switch ($app.ExitCode) {
@@ -62,22 +62,22 @@ jobs:
           }
       - name: Open the sample dashboard
         run: |
-          $app = Start-Process (Join-Path $env:PACE_OUTPUT "CodexPace.exe") -ArgumentList "--demo" -WorkingDirectory $env:PACE_OUTPUT -PassThru
+          $app = Start-Process (Join-Path $env:TICKER_OUTPUT "CodexTicker.exe") -ArgumentList "--demo" -WorkingDirectory $env:TICKER_OUTPUT -PassThru
           try {
             $deadline = (Get-Date).AddSeconds(45)
             do {
               Start-Sleep -Milliseconds 500
               $app.Refresh()
-              if ($app.HasExited) { throw "Codex Pace exited before opening (code $($app.ExitCode))." }
+              if ($app.HasExited) { throw "Codex Ticker exited before opening (code $($app.ExitCode))." }
             } until (($app.MainWindowHandle -ne 0 -and $app.Responding) -or (Get-Date) -ge $deadline)
-            if ($app.MainWindowHandle -eq 0 -or -not $app.Responding) { throw "Codex Pace did not open a responsive window." }
+            if ($app.MainWindowHandle -eq 0 -or -not $app.Responding) { throw "Codex Ticker did not open a responsive window." }
             if ($env:ARCH -eq "x64") {
               try {
                 Add-Type -AssemblyName System.Drawing.Common
                 Add-Type -TypeDefinition @'
           using System;
           using System.Runtime.InteropServices;
-          public static class PacePreview {
+          public static class TickerPreview {
               [StructLayout(LayoutKind.Sequential)]
               public struct Rect { public int Left, Top, Right, Bottom; }
               [DllImport("user32.dll")]
@@ -90,13 +90,13 @@ jobs:
               public static extern bool MoveWindow(IntPtr handle, int x, int y, int width, int height, bool repaint);
           }
           '@
-                $width = [Math]::Min(1000, [PacePreview]::GetSystemMetrics(0) - 32)
-                $height = [Math]::Min(788, [PacePreview]::GetSystemMetrics(1) - 32)
-                [PacePreview]::MoveWindow($app.MainWindowHandle, 16, 16, $width, $height, $true) | Out-Null
-                [PacePreview]::SetForegroundWindow($app.MainWindowHandle) | Out-Null
+                $width = [Math]::Min(1000, [TickerPreview]::GetSystemMetrics(0) - 32)
+                $height = [Math]::Min(788, [TickerPreview]::GetSystemMetrics(1) - 32)
+                [TickerPreview]::MoveWindow($app.MainWindowHandle, 16, 16, $width, $height, $true) | Out-Null
+                [TickerPreview]::SetForegroundWindow($app.MainWindowHandle) | Out-Null
                 Start-Sleep -Seconds 1
-                $rect = [PacePreview+Rect]::new()
-                if (-not [PacePreview]::GetWindowRect($app.MainWindowHandle, [ref] $rect)) { throw "No window bounds." }
+                $rect = [TickerPreview+Rect]::new()
+                if (-not [TickerPreview]::GetWindowRect($app.MainWindowHandle, [ref] $rect)) { throw "No window bounds." }
                 $width = $rect.Right - $rect.Left
                 $height = $rect.Bottom - $rect.Top
                 if ($width -lt 300 -or $height -lt 200) { throw "Window too small for the preview." }
@@ -105,7 +105,7 @@ jobs:
                   $graphics = [System.Drawing.Graphics]::FromImage($image)
                   try { $graphics.CopyFromScreen($rect.Left, $rect.Top, 0, 0, $image.Size) }
                   finally { $graphics.Dispose() }
-                  $image.Save((Join-Path $env:RUNNER_TEMP "Codex-Pace-Windows-Preview.png"), [System.Drawing.Imaging.ImageFormat]::Png)
+                  $image.Save((Join-Path $env:RUNNER_TEMP "Codex-Ticker-Windows-Preview.png"), [System.Drawing.Imaging.ImageFormat]::Png)
                 } finally { $image.Dispose() }
               } catch { Write-Warning "Preview capture was unavailable: $_" }
             }
@@ -115,18 +115,18 @@ jobs:
       - name: Zip the app and its files
         run: |
           $archName = if ($env:ARCH -eq "arm64") { "arm64" } else { "x64" }
-          $archive = Join-Path $env:RUNNER_TEMP "Codex-Pace-Windows-$archName.zip"
-          tar.exe -a -cf $archive -C $env:PACE_OUTPUT .
+          $archive = Join-Path $env:RUNNER_TEMP "Codex-Ticker-Windows-$archName.zip"
+          tar.exe -a -cf $archive -C $env:TICKER_OUTPUT .
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          "PACE_ARCHIVE=$archive" >> $env:GITHUB_ENV
+          "TICKER_ARCHIVE=$archive" >> $env:GITHUB_ENV
       - uses: actions/upload-artifact@v6
         with:
           name: Windows-${{ matrix.arch }}
-          path: ${{ env.PACE_ARCHIVE }}
+          path: ${{ env.TICKER_ARCHIVE }}
           if-no-files-found: error
       - uses: actions/upload-artifact@v6
         if: matrix.arch == 'x64'
         with:
           name: Windows-preview
-          path: ${{ runner.temp }}/Codex-Pace-Windows-Preview.png
+          path: ${{ runner.temp }}/Codex-Ticker-Windows-Preview.png
           if-no-files-found: ignore
